@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-MSG_NOT_XRAY = "Please upload medical image."
-MSG_UNKNOWN_PART = "Please upload medical image."
+MSG_NOT_XRAY = "Please upload a medical image."
+MSG_UNKNOWN_PART = "Please upload a medical image."
 
 
 @dataclass(frozen=True)
