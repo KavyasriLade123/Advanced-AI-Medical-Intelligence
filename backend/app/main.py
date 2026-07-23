@@ -51,9 +51,36 @@ def get_media_file(kind: str, name: str) -> FileResponse:
     return FileResponse(path)
 
 
-# Prefer built React UI (same origin as API — avoids browser CORS / Failed to fetch).
+def _spa_index() -> FileResponse:
+    index = STATIC_DIR / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="Frontend not built.")
+    return FileResponse(index)
+
+
 if (STATIC_DIR / "index.html").is_file():
-    app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+    assets_dir = STATIC_DIR / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+
+    @app.get("/")
+    def spa_root() -> FileResponse:
+        return _spa_index()
+
+    @app.get("/analyze")
+    @app.get("/about")
+    def spa_pages() -> FileResponse:
+        return _spa_index()
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str) -> FileResponse:
+        # Do not swallow API/docs
+        if full_path.startswith(("api/", "docs", "openapi", "redoc")):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = (STATIC_DIR / full_path).resolve()
+        if str(candidate).startswith(str(STATIC_DIR.resolve())) and candidate.is_file():
+            return FileResponse(candidate)
+        return _spa_index()
 else:
 
     @app.get("/")
