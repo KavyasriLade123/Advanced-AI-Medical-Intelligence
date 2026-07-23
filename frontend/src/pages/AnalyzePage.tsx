@@ -60,7 +60,7 @@ export default function AnalyzePage() {
       setError(
         err instanceof Error
           ? err.message
-          : "This image is not related to trained medical models. Please upload a correct medical image.",
+          : "Please upload medical image.",
       );
     } finally {
       setLoading(false);
@@ -107,9 +107,8 @@ export default function AnalyzePage() {
       <section className="panel">
         <h2>Image analysis</h2>
         <p className="lede">
-          Supported regions include Brain, Eye/Retina, Breast, Chest X-ray, Abdomen, Skin, Bone
-          fracture, and Lower limb. Unrelated images are rejected — please upload a correct medical
-          image. Predictions are decision support only.
+          Upload a medical X-ray or clinical image (chest, brain, bone, breast, etc.). Everyday photos
+          or text screenshots are rejected with: <strong>Please upload medical image.</strong>
         </p>
 
         <div

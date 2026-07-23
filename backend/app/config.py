@@ -38,12 +38,8 @@ class Settings(BaseSettings):
         "BREAST_NORMAL,EYE_RETINA,LOWER_LIMB,NORMAL,PNEUMONIA,SKIN,UNSUPPORTED"
     )
     image_size: int = 224
-    min_confidence: float = 0.50
-    supported_hint: str = (
-        "Upload a correct medical image from supported body regions: "
-        "Brain, Eye/Retina, Breast, Chest X-ray, Abdomen CT, Skin, "
-        "Bone fracture, or Lower limb. Non-medical or unrelated images are rejected."
-    )
+    min_confidence: float = 0.55
+    supported_hint: str = "Please upload medical image."
 
     @property
     def origins(self) -> list[str]:

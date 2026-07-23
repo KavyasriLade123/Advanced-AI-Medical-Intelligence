@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import HEATMAP_DIR, UPLOAD_DIR, get_settings
 from app.database import get_db
 from app.ml import explain_prediction, get_classifier, load_image, preprocess_image
+from app.ml.image_gate import REJECT_MESSAGE, is_medical_prediction, looks_like_photo_or_text
 from app.models.db_models import PredictionRecord
 from app.schemas.prediction import DiseaseInfo, PredictionResponse, ProbabilityItem
 from app.services.disease_info import get_disease_info
@@ -20,7 +21,7 @@ ALLOWED_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/webp", "image/bm
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
 
-def _reject(image_path: Path, message: str) -> None:
+def _reject(image_path: Path, message: str = REJECT_MESSAGE) -> None:
     if image_path.exists():
         image_path.unlink(missing_ok=True)
     raise HTTPException(status_code=400, detail=message)
@@ -34,14 +35,11 @@ async def predict_image(
 ) -> PredictionResponse:
     settings = get_settings()
     if file.content_type and file.content_type.lower() not in ALLOWED_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="Unsupported file type. Please upload a correct medical image (JPG/PNG).",
-        )
+        raise HTTPException(status_code=400, detail=REJECT_MESSAGE)
 
     raw = await file.read()
     if not raw:
-        raise HTTPException(status_code=400, detail="Empty file uploaded. Please upload a correct medical image.")
+        raise HTTPException(status_code=400, detail=REJECT_MESSAGE)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=400,
@@ -57,20 +55,19 @@ async def predict_image(
         image = load_image(raw)
         # Cap resolution to keep Render Free under memory limits
         image.thumbnail((1024, 1024))
+        if looks_like_photo_or_text(image):
+            _reject(image_path, REJECT_MESSAGE)
         tensor = preprocess_image(image)
         classifier = get_classifier()
         predicted, confidence, probs = classifier.predict(tensor)
-    except Exception as exc:
-        _reject(image_path, f"Could not read image. Please upload a correct medical image. ({exc})")
+    except HTTPException:
+        raise
+    except Exception:
+        _reject(image_path, REJECT_MESSAGE)
 
-    # Reject unrelated / out-of-scope predictions
-    if predicted.upper() == "UNSUPPORTED" or confidence < settings.min_confidence:
-        _reject(
-            image_path,
-            "This image is not related to the trained medical body-part models. "
-            "Please upload a correct medical image "
-            "(Brain, Eye/Retina, Breast, Chest X-ray, Abdomen, Skin, Bone fracture, or Lower limb).",
-        )
+    # Only return findings for medical X-ray / imaging classes
+    if not is_medical_prediction(predicted, confidence, probs, settings.min_confidence):
+        _reject(image_path, REJECT_MESSAGE)
 
     heatmap_name: str | None = None
     try:
