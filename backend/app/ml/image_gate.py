@@ -21,7 +21,6 @@ MEDICAL_LABELS = {
     "SKIN",
 }
 
-# Classes that imply bone / radiographic anatomy (not skin/eye photos)
 BONE_BODY_LABELS = {
     "ABDOMEN",
     "BONE_FRACTURE",
@@ -36,8 +35,8 @@ BONE_BODY_LABELS = {
 
 XRAY_ANATOMY_LABELS = set(BONE_BODY_LABELS)
 ANATOMY_LABELS = set(BONE_BODY_LABELS)
-
 NON_CLINICAL_LABELS = {"UNSUPPORTED", "SKIN", "EYE_RETINA"}
+MIN_BONE_CONFIDENCE = 0.40
 
 
 def _rgb_array(image: Image.Image, size: int = 192) -> np.ndarray:
@@ -48,35 +47,51 @@ def _gray_from_rgb(arr: np.ndarray) -> np.ndarray:
     return 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
 
 
+def _channel_corr(a: np.ndarray, b: np.ndarray) -> float:
+    if float(a.std()) < 1e-3 or float(b.std()) < 1e-3:
+        return 1.0
+    return float(np.corrcoef(a, b)[0, 1])
+
+
+def _skin_fraction(arr: np.ndarray) -> float:
+    """Approximate share of skin-colored pixels (people photos)."""
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    skin = (
+        (r > 60)
+        & (g > 30)
+        & (b > 15)
+        & (r >= g)
+        & (g >= b)
+        & ((r - g) >= 10)
+        & ((r - g) <= 100)
+        & ((g - b) <= 80)
+    )
+    return float(skin.mean())
+
+
 def _is_medical_display_lut(arr: np.ndarray) -> bool:
     """
-    True for grayscale films and blue/cyan PACS CT/MRI panels.
-    False for color person photos and casual camera shots.
+    True ONLY for near-grayscale X-ray films or blue/cyan PACS CT/MRI panels.
+    Person photos (skin tones) always return False.
     """
     gray = _gray_from_rgb(arr)
     mid_frac = float(((gray >= 35) & (gray <= 220)).mean())
     if mid_frac < 0.12:
         return False
+    if _skin_fraction(arr) >= 0.015:
+        return False
 
     r, g, b = arr[:, :, 0].ravel(), arr[:, :, 1].ravel(), arr[:, :, 2].ravel()
     chroma = np.maximum(np.maximum(np.abs(r - g), np.abs(r - b)), np.abs(g - b))
     mean_chroma = float(chroma.mean())
+    r_m, g_m, b_m = float(r.mean()), float(g.mean()), float(b.mean())
 
-    def _corr(a: np.ndarray, b: np.ndarray) -> float:
-        if float(a.std()) < 1e-3 or float(b.std()) < 1e-3:
-            return 1.0
-        return float(np.corrcoef(a, b)[0, 1])
-
-    rg, rb, gb = _corr(r, g), _corr(r, b), _corr(g, b)
-    mean_corr = (rg + rb + gb) / 3.0
-
-    # Near-grayscale film
-    if mean_chroma < 14.0:
+    if mean_chroma < 10.0:
         return True
-    # Blue/teal clinical LUT with correlated channels
-    if mean_corr >= 0.92 and mean_chroma < 55.0:
-        return True
-    if mean_corr >= 0.88 and float(b.mean()) >= float(r.mean()) and mean_chroma < 70.0:
+
+    mean_corr = (_channel_corr(r, g) + _channel_corr(r, b) + _channel_corr(g, b)) / 3.0
+    blue_dominant = b_m >= r_m + 15.0 and b_m >= g_m + 6.0
+    if blue_dominant and mean_corr >= 0.90 and 10.0 <= mean_chroma < 65.0:
         return True
     return False
 
@@ -86,28 +101,53 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
     gray = _gray_from_rgb(arr)
     r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
     color = float((np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3.0)
+    sat = float(np.mean(np.abs(r - gray) + np.abs(g - gray) + np.abs(b - gray)) / 3.0)
     w, h = image.size
     return {
         "dark": float((gray < 45).mean()),
         "mid": float(((gray >= 35) & (gray <= 220)).mean()),
         "bright": float((gray > 220).mean()),
         "color": color,
+        "sat": sat,
+        "skin": _skin_fraction(arr),
         "aspect": float(h) / float(max(w, 1)),
         "medical_lut": 1.0 if _is_medical_display_lut(arr) else 0.0,
+        "r_mean": float(r.mean()),
+        "g_mean": float(g.mean()),
+        "b_mean": float(b.mean()),
     }
 
 
 def looks_like_person_or_color_photo(image: Image.Image) -> bool:
-    """True for selfies / casual color photos (no clinical grayscale or blue LUT)."""
+    """True for selfies / group photos. Clinical gray/blue scans return False."""
     s = _tone_stats(image)
-    if bool(s["medical_lut"]):
+    skin = float(s["skin"])
+    color = float(s["color"])
+    sat = float(s["sat"])
+    medical_lut = bool(s["medical_lut"])
+    blue_gap = float(s["b_mean"]) - float(s["r_mean"])
+
+    # Any meaningful skin → people photo
+    if skin >= 0.012:
+        return True
+
+    # Colorful image that is not a strong blue PACS panel
+    if color >= 10.0 and blue_gap < 18.0:
+        return True
+    if sat >= 6.0 and blue_gap < 18.0:
+        return True
+
+    if medical_lut and color < 12.0 and skin < 0.01:
         return False
-    # Any non-clinical color image is treated as a person/nature photo
-    return float(s["color"]) >= 12.0
+    if medical_lut and blue_gap >= 15.0 and skin < 0.01:
+        return False
+
+    if color >= 8.0 or sat >= 6.0:
+        return True
+    return False
 
 
 def looks_like_photo_or_text(image: Image.Image) -> bool:
-    """True for text/UI or casual photos — not a clinical bone scan."""
     s = _tone_stats(image)
     dark, mid, bright, color, aspect = s["dark"], s["mid"], s["bright"], s["color"], s["aspect"]
     medical_lut = bool(s["medical_lut"])
@@ -120,15 +160,12 @@ def looks_like_photo_or_text(image: Image.Image) -> bool:
         return True
     if bright >= 0.55 and mid < 0.40:
         return True
-    if not medical_lut and color >= 20.0 and mid < 0.40:
-        return True
-    if not medical_lut and color >= 40.0:
+    if not medical_lut and color >= 8.0:
         return True
     return False
 
 
 def looks_like_text_without_anatomy(image: Image.Image) -> bool:
-    """Text / UI with no bone tissue → not an X-ray."""
     s = _tone_stats(image)
     mid = float(s["mid"])
     dark = float(s["dark"])

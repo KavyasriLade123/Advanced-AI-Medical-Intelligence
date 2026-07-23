@@ -87,6 +87,20 @@ class MedicalXrayPipeline:
             unified_probs=probs,
         )
 
+        # Reject weak / non-clinical guesses (e.g. person photo → 23% brain tumor)
+        from app.ml.image_gate import MIN_BONE_CONFIDENCE, looks_like_person_or_color_photo
+
+        if looks_like_person_or_color_photo(image) or disease.confidence < MIN_BONE_CONFIDENCE:
+            return PipelineResult(
+                ok=False,
+                is_xray=False,
+                xray_confidence=stage1.confidence,
+                error=MSG_NOT_XRAY,
+                model_mode=self.unified.model_mode,
+                probabilities=probs,
+                source_label=predicted,
+            )
+
         logger.info(
             "Pipeline OK part=%s disease=%s conf=%.3f",
             part.display_name,

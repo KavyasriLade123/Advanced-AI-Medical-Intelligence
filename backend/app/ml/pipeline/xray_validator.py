@@ -8,6 +8,7 @@ from PIL import Image
 
 from app.ml.image_gate import (
     BONE_BODY_LABELS,
+    MIN_BONE_CONFIDENCE,
     NON_CLINICAL_LABELS,
     _tone_stats,
     looks_like_person_or_color_photo,
@@ -52,14 +53,13 @@ def validate_medical_xray(
     min_anatomy_midtone: float = 0.16,
 ) -> XrayValidationResult:
     """
-    Accept only when bone / body-part structure is visible on a clinical scan
-    (grayscale X-ray or blue/cyan CT/MRI panel).
-
-    Person photos, selfies, text screenshots → "Please upload a medical image."
+    Accept only clinical bone/body scans (grayscale X-ray or blue CT/MRI).
+    Person photos and weak guesses (e.g. 23% brain tumor) are rejected.
     """
     tones = _tone_stats(image)
     mid = float(tones["mid"])
     medical_lut = bool(tones["medical_lut"])
+    color = float(tones["color"])
 
     best_label = ""
     best_prob = 0.0
@@ -73,47 +73,56 @@ def validate_medical_xray(
         top_prob = float(top_prob)
         best_label, best_prob, bone_mass = _bone_signal(class_probs)
 
-    # Person / color camera photo → never an X-ray (even if model says brain tumor)
-    if looks_like_person_or_color_photo(image):
-        logger.info("Rejected person/color photo (color=%.1f mid=%.3f top=%s)", tones["color"], mid, top_label)
+    # Hard reject: color camera photos of people / rooms / clothes
+    if looks_like_person_or_color_photo(image) or float(tones.get("skin", 0.0)) >= 0.012:
+        logger.info(
+            "Rejected person/color photo color=%.1f sat=%.1f skin=%.3f lut=%s top=%s conf=%.3f",
+            color,
+            tones.get("sat", 0.0),
+            tones.get("skin", 0.0),
+            medical_lut,
+            top_label,
+            top_prob,
+        )
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
-    # Text / UI without bone tissue
     if looks_like_text_without_anatomy(image):
-        logger.info("Rejected text without bones (mid=%.3f)", mid)
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
     if looks_like_photo_or_text(image) and not medical_lut:
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
-    # Must look like a clinical display (gray film or PACS blue LUT)
+    # Must be grayscale film or blue PACS panel
     if not medical_lut:
-        logger.info("Rejected non-clinical display (not grayscale/PACS LUT)")
         return XrayValidationResult(False, mid, MSG_NOT_XRAY)
 
     if mid < min_anatomy_midtone:
         return XrayValidationResult(False, mid, MSG_NOT_XRAY)
 
     if class_probs:
-        # Bones / body part on clinical scan → accept (before non-clinical top-label checks)
-        if best_prob >= 0.20 and mid >= 0.14:
+        # Low-confidence guesses on any image are not trusted as X-rays
+        if best_prob < MIN_BONE_CONFIDENCE and bone_mass < 0.55:
+            logger.info(
+                "Rejected weak bone signal %s=%.3f mass=%.3f (need >=%.2f)",
+                best_label,
+                best_prob,
+                bone_mass,
+                MIN_BONE_CONFIDENCE,
+            )
+            return XrayValidationResult(False, best_prob, MSG_NOT_XRAY)
+
+        if top_label in NON_CLINICAL_LABELS and best_prob < MIN_BONE_CONFIDENCE:
+            return XrayValidationResult(False, best_prob, MSG_NOT_XRAY)
+
+        if best_prob >= MIN_BONE_CONFIDENCE and mid >= 0.14:
             logger.info("Bone/body accepted: %s=%.3f mass=%.3f", best_label, best_prob, bone_mass)
             return XrayValidationResult(True, max(best_prob, bone_mass), "")
 
-        if bone_mass >= 0.35 and mid >= 0.14:
+        if bone_mass >= 0.55 and mid >= 0.18 and medical_lut:
             return XrayValidationResult(True, bone_mass, "")
-
-        # Skin / eye / unsupported alone — not a bone X-ray
-        if top_label in NON_CLINICAL_LABELS and bone_mass < 0.30:
-            return XrayValidationResult(False, best_prob, MSG_NOT_XRAY)
-
-        # Clinical LUT with enough mid-tones and some bone signal (MRI/CT panels)
-        if medical_lut and mid >= 0.20 and bone_mass >= 0.18:
-            return XrayValidationResult(True, max(bone_mass, mid), "")
 
         return XrayValidationResult(False, best_prob, MSG_NOT_XRAY)
 
-    # Heuristic-only: clinical LUT + tissue mid-tones
-    if medical_lut and mid >= 0.22:
+    if medical_lut and mid >= 0.25 and color < 10.0:
         return XrayValidationResult(True, mid, "")
     return XrayValidationResult(False, mid, MSG_NOT_XRAY)
