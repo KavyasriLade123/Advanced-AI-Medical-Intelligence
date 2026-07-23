@@ -87,18 +87,10 @@ class MedicalXrayPipeline:
             unified_probs=probs,
         )
 
-        # Reject weak / non-clinical guesses (e.g. person photo → 23% brain tumor)
-        from app.ml.image_gate import (
-            MIN_BONE_CONFIDENCE,
-            looks_like_person_or_color_photo,
-            looks_like_ui_screenshot,
-        )
+        # Keep hard rejects for people / UI even if disease head is confident
+        from app.ml.image_gate import looks_like_person_or_color_photo, looks_like_ui_screenshot
 
-        if (
-            looks_like_person_or_color_photo(image)
-            or looks_like_ui_screenshot(image)
-            or disease.confidence < MIN_BONE_CONFIDENCE
-        ):
+        if looks_like_person_or_color_photo(image) or looks_like_ui_screenshot(image):
             return PipelineResult(
                 ok=False,
                 is_xray=False,

@@ -1,4 +1,4 @@
-"""Stage 1 — only bone / body-part clinical scans count as X-rays."""
+"""Stage 1 — trained X-ray detector + hard rejects for people/UI/text."""
 
 from __future__ import annotations
 
@@ -17,8 +17,13 @@ from app.ml.image_gate import (
     looks_like_ui_screenshot,
 )
 from app.ml.pipeline.catalog import MSG_NOT_XRAY
+from app.ml.pipeline.xray_detector import get_xray_detector
 
 logger = logging.getLogger(__name__)
+
+# Trained detector thresholds (keep person/UI hard rejects above these)
+DETECTOR_ACCEPT = 0.55
+DETECTOR_REJECT = 0.35
 
 
 class XrayValidationResult:
@@ -31,7 +36,6 @@ class XrayValidationResult:
 
 
 def _bone_signal(class_probs: dict[str, float]) -> tuple[str, float, float]:
-    """Return (best_bone_label, best_prob, bone_mass)."""
     best_label = ""
     best_prob = 0.0
     mass = 0.0
@@ -54,8 +58,9 @@ def validate_medical_xray(
     min_anatomy_midtone: float = 0.16,
 ) -> XrayValidationResult:
     """
-    Accept only clinical bone/body scans (grayscale X-ray or blue CT/MRI).
-    Person photos and weak guesses (e.g. 23% brain tumor) are rejected.
+    1) Always reject person photos / UI screenshots / text-only (unchanged).
+    2) Prefer trained X-ray detector when weights are present.
+    3) Fall back to clinical LUT + bone-label heuristics.
     """
     tones = _tone_stats(image)
     mid = float(tones["mid"])
@@ -74,60 +79,49 @@ def validate_medical_xray(
         top_prob = float(top_prob)
         best_label, best_prob, bone_mass = _bone_signal(class_probs)
 
-    # Hard reject: IDE / website / app screenshots (flat UI panels)
+    # --- Hard rejects (do not soften) ---
     if looks_like_ui_screenshot(image) or float(tones.get("flat", 0.0)) >= 0.45:
-        logger.info(
-            "Rejected UI screenshot flat=%.3f busy=%.3f dark=%.3f top=%s",
-            tones.get("flat", 0.0),
-            tones.get("busy", 0.0),
-            tones["dark"],
-            top_label,
-        )
+        logger.info("Rejected UI screenshot flat=%.3f", tones.get("flat", 0.0))
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
-    # Hard reject: color camera photos of people / rooms / clothes
     if looks_like_person_or_color_photo(image) or float(tones.get("skin", 0.0)) >= 0.012:
-        logger.info(
-            "Rejected person/color photo color=%.1f sat=%.1f skin=%.3f lut=%s top=%s conf=%.3f",
-            color,
-            tones.get("sat", 0.0),
-            tones.get("skin", 0.0),
-            medical_lut,
-            top_label,
-            top_prob,
-        )
+        logger.info("Rejected person/color photo skin=%.3f color=%.1f", tones.get("skin", 0.0), color)
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
     if looks_like_text_without_anatomy(image):
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
+    # --- Trained detector ---
+    detector = get_xray_detector()
+    det_p = detector.predict_proba(image) if detector.available else None
+    if det_p is not None:
+        logger.info("X-ray detector P(xray)=%.3f top=%s bone=%.3f", det_p, top_label, best_prob)
+        if det_p >= DETECTOR_ACCEPT:
+            return XrayValidationResult(True, det_p, "")
+        if det_p < DETECTOR_REJECT:
+            return XrayValidationResult(False, det_p, MSG_NOT_XRAY)
+        # Uncertain band: require clinical look + bone signal
+
     if looks_like_photo_or_text(image) and not medical_lut:
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
-    # Must be grayscale film or blue PACS panel
-    if not medical_lut:
+    if not medical_lut and (det_p is None or det_p < DETECTOR_ACCEPT):
         return XrayValidationResult(False, mid, MSG_NOT_XRAY)
 
     if mid < min_anatomy_midtone:
         return XrayValidationResult(False, mid, MSG_NOT_XRAY)
 
     if class_probs:
-        # Low-confidence guesses on any image are not trusted as X-rays
         if best_prob < MIN_BONE_CONFIDENCE and bone_mass < 0.55:
-            logger.info(
-                "Rejected weak bone signal %s=%.3f mass=%.3f (need >=%.2f)",
-                best_label,
-                best_prob,
-                bone_mass,
-                MIN_BONE_CONFIDENCE,
-            )
+            # Detector uncertain + weak labels
+            if det_p is not None and det_p >= 0.45 and medical_lut and mid >= 0.20:
+                return XrayValidationResult(True, max(det_p, bone_mass), "")
             return XrayValidationResult(False, best_prob, MSG_NOT_XRAY)
 
         if top_label in NON_CLINICAL_LABELS and best_prob < MIN_BONE_CONFIDENCE:
             return XrayValidationResult(False, best_prob, MSG_NOT_XRAY)
 
         if best_prob >= MIN_BONE_CONFIDENCE and mid >= 0.14:
-            logger.info("Bone/body accepted: %s=%.3f mass=%.3f", best_label, best_prob, bone_mass)
             return XrayValidationResult(True, max(best_prob, bone_mass), "")
 
         if bone_mass >= 0.55 and mid >= 0.18 and medical_lut:
