@@ -1,0 +1,1 @@
+{"name":"MedIntel - Advanced AI Medical Intelligence Platform","docs":"/docs","health":"/api/health"}

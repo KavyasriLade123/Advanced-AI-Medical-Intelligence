@@ -29,7 +29,8 @@ Build a complete end-to-end AI application capable of:
 | Live deployment link | Optional — local/Docker demo, or add cloud URL below |
 | Per-item submission notes | [`docs/submission/`](docs/submission/00_SUBMISSION_INDEX.md) |
 
-**Live deployment link:** _Add Vercel URL after deploy_ (see [Live cloud deploy](#live-cloud-deploy-vercel--render))  
+**Live deployment link:** https://advanced-ai-medical-intelligence-jy.vercel.app  
+**API (Render):** https://advanced-ai-medical-intelligence-4og2.onrender.com  
 **GitHub repository link:** https://github.com/KavyasriLade123/Advanced-AI-Medical-Intelligence
 
 ## Objective coverage

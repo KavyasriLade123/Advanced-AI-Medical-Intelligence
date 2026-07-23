@@ -90,15 +90,18 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
-function apiHint(): string {
+function apiHint(cause?: string): string {
   if (!isApiConfigured()) {
     return (
       "Backend URL is not configured. On Vercel set VITE_API_BASE_URL to your Render API " +
       "(e.g. https://medintel-api.onrender.com), or put that URL in frontend/public/config.json as apiBaseUrl, then redeploy."
     );
   }
+  const extra = cause ? ` (${cause})` : "";
   return (
-    `Cannot reach the MedIntel API at ${API_BASE}. Ensure Render is Live and CORS_ORIGINS includes this Vercel site.`
+    `Cannot reach the MedIntel API at ${API_BASE}${extra}. ` +
+    "On Render Free the service sleeps when idle — open the API URL once, wait 30–90 seconds until it is Live, then try Predict again. " +
+    "Also confirm CORS_ORIGINS includes this Vercel site."
   );
 }
 
@@ -106,11 +109,22 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!isApiConfigured()) {
     throw new Error(apiHint());
   }
-  try {
-    return await fetch(`${API_BASE}${path}`, init);
-  } catch {
-    throw new Error(apiHint());
+  const url = `${API_BASE}${path}`;
+  let lastErr: unknown;
+  // Render Free cold-starts often fail the first 1–2 browser requests.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, attempt * 2500));
+      }
+    }
   }
+  const msg = lastErr instanceof Error ? lastErr.message : "network error";
+  throw new Error(apiHint(msg));
 }
 
 export async function fetchHealth(): Promise<Health> {
