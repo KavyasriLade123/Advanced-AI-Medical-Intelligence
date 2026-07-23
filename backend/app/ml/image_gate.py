@@ -93,6 +93,14 @@ def looks_like_ui_screenshot(image: Image.Image) -> bool:
     flat, busy = _ui_panel_stats(gray)
     dark = float((gray < 50).mean())
     mid = float(((gray >= 35) & (gray <= 220)).mean())
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    mean_chroma = float(
+        (np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3.0
+    )
+    # Extremity bone / chest films: large black borders look "flat" but are grayscale clinical
+    if mean_chroma < 8.0 and mid >= 0.18:
+        return False
+
     # Flat chrome + dark theme (VS Code, dashboards, etc.)
     if flat >= 0.45 and busy <= 0.35:
         return True
@@ -115,20 +123,22 @@ def _is_medical_display_lut(arr: np.ndarray) -> bool:
         return False
     if _skin_fraction(arr) >= 0.015:
         return False
-    # Full-res flatness on the same array size as tone stats helper uses elsewhere
-    flat, busy = _ui_panel_stats(gray if gray.shape[0] >= 128 else _gray_from_rgb(arr))
-    if flat >= 0.45 and busy <= 0.35:
-        return False
 
     r, g, b = arr[:, :, 0].ravel(), arr[:, :, 1].ravel(), arr[:, :, 2].ravel()
     chroma = np.maximum(np.maximum(np.abs(r - g), np.abs(r - b)), np.abs(g - b))
     mean_chroma = float(chroma.mean())
+
+    # Flat UI chrome (colored) — not grayscale bone films with black borders
+    flat, busy = _ui_panel_stats(gray if gray.shape[0] >= 128 else _gray_from_rgb(arr))
+    if flat >= 0.45 and busy <= 0.35 and mean_chroma >= 8.0:
+        return False
+
     r_m, g_m, b_m = float(r.mean()), float(g.mean()), float(b.mean())
 
     if mean_chroma < 10.0:
         # Dark IDE themes are near-gray but not X-rays
         dark = float((gray < 45).mean())
-        if dark >= 0.55 and mid_frac < 0.45:
+        if dark >= 0.55 and mid_frac < 0.45 and flat >= 0.50 and busy <= 0.15:
             return False
         return True
 

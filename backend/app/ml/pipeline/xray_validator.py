@@ -84,7 +84,12 @@ def validate_medical_xray(
     detector = get_xray_detector()
     det_p = detector.predict_proba(image) if detector.available else None
 
-    clear_ui = looks_like_ui_screenshot(image) or (flat >= 0.50 and busy <= 0.20)
+    clear_ui = looks_like_ui_screenshot(image) or (
+        flat >= 0.55 and busy <= 0.15 and color >= 8.0
+    )
+    # Grayscale bone films often have flat>=0.45 from black borders — not UI
+    if flat >= 0.45 and color < 8.0 and corr >= 0.98:
+        clear_ui = looks_like_ui_screenshot(image)
     clear_person = looks_like_person_or_color_photo(image) and not (corr >= 0.985 and color < 32.0)
     clear_text = looks_like_text_without_anatomy(image)
 
@@ -102,11 +107,13 @@ def validate_medical_xray(
         return XrayValidationResult(True, det_p, "")
 
     # Hard rejects when detector is missing or unsure
-    if clear_ui or flat >= 0.45:
+    if clear_ui:
+        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
+    if flat >= 0.50 and busy <= 0.15 and color >= 8.0:
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
     if clear_person or (skin >= 0.05 and corr < 0.98):
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
-    if clear_text:
+    if clear_text and color >= 5.0:
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
     if det_p is not None and det_p < DETECTOR_REJECT:
