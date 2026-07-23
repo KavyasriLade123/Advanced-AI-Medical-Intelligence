@@ -17,7 +17,11 @@ class Settings(BaseSettings):
     app_name: str = "MedIntel - Advanced AI Medical Intelligence Platform"
     api_prefix: str = "/api"
     database_url: str = f"sqlite:///{(DATA_DIR / 'medintel.db').as_posix()}"
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,"
+        "http://192.168.0.8:5173"
+    )
+    cors_origin_regex: str = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?"
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
