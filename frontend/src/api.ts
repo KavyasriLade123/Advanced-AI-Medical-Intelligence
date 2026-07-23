@@ -54,7 +54,8 @@ export type Health = {
   classes: string[];
 };
 
-const API_BASE = "";
+/** Empty in local Vite (proxy /api). Set VITE_API_BASE_URL on Vercel to the Render API origin. */
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
 async function readError(res: Response): Promise<string> {
   try {

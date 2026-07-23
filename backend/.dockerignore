@@ -1,0 +1,9 @@
+# Ignore local env / build junk for backend image
+data/uploads/*
+data/heatmaps/*
+data/*.db
+.env
+.venv
+__pycache__
+*.pyc
+.pytest_cache

@@ -1,29 +1,56 @@
-# 8. Live Deployment Link (if deployed)
-
-## What to submit
-A **public HTTPS URL** if the app is hosted on the cloud (Render, Railway, Azure, AWS, Hugging Face Spaces, etc.).
-
-## Current status
-**Not publicly deployed.**
-
-| Mode | URL | Audience |
-|------|-----|----------|
-| Local frontend | http://127.0.0.1:5173 | This PC only |
-| LAN frontend (example) | http://192.168.0.8:5173 | Same Wi‑Fi only |
-| Local API docs | http://127.0.0.1:8000/docs | This PC only |
-| Public cloud | — | **None yet** |
-
-## What to write on the form
-If a live link is optional:
-
-> Live deployment not yet published. Application runs locally / via Docker. See README for setup.
-
-If a live link is mandatory, deploy first, then paste the public URL here and on the form.
-
-## Suggested cloud options (when you deploy)
-- Backend: Render / Railway / Azure App Service / Hugging Face Spaces
-- Frontend: Vercel / Netlify / same Docker host
-- Persist model file and set env vars for any LLM API keys
+# Live deployment — Vercel (frontend) + Render (backend)
 
 ## Status
-**Not available** — leave blank or mark “local demo only” unless you deploy and update this file with the public URL.
+Configured in repo. Publish after you push these files and create the two cloud services.
+
+## 1) Deploy backend on Render (do this first)
+
+1. Push this repo to GitHub (include model weights + Docker files).
+2. Open [https://dashboard.render.com](https://dashboard.render.com) → **New** → **Web Service**.
+3. Connect `KavyasriLade123/Advanced-AI-Medical-Intelligence`.
+4. Settings:
+   - **Runtime:** Docker
+   - **Root Directory:** `backend`  
+     (or use Blueprint `render.yaml` from repo root)
+   - **Dockerfile path:** `./Dockerfile` (inside `backend`)
+5. Environment variables:
+   - `CORS_ORIGINS` = your Vercel URL(s), comma-separated  
+     Example: `https://advanced-ai-medical-intelligence.vercel.app`
+   - Optional: `OPENAI_API_KEY`
+6. Deploy and copy the API URL, e.g. `https://medintel-api.onrender.com`
+7. Test: `https://medintel-api.onrender.com/api/health`
+
+**Note:** PyTorch needs RAM. Prefer **Starter** (or higher), not Free, or the service may crash/OOM.
+
+## 2) Deploy frontend on Vercel
+
+1. Open [https://vercel.com](https://vercel.com) → **Add New Project** → import the same GitHub repo.
+2. Important (avoids the Python entrypoint error):
+   - **Framework Preset:** Vite
+   - **Root Directory:** `frontend`  
+     OR keep repo root and use the root `vercel.json` (builds `frontend/`)
+3. Environment variable:
+   - `VITE_API_BASE_URL` = `https://medintel-api.onrender.com`  
+     (no trailing slash; use your real Render URL)
+4. Deploy. Copy the frontend URL, e.g. `https://….vercel.app`
+
+## 3) Wire CORS
+
+On Render, set `CORS_ORIGINS` to the exact Vercel URL (and preview URLs if needed).  
+Backend also allows `*.vercel.app` via regex, but setting `CORS_ORIGINS` is safest.
+
+Redeploy Render after changing env vars.
+
+## 4) What to submit as Live Deployment Link
+
+Use the **Vercel frontend URL** (the site users open).
+
+| Service | Example |
+|---------|---------|
+| Live app (submit this) | `https://YOUR-APP.vercel.app` |
+| API (supporting) | `https://YOUR-API.onrender.com` |
+| API docs | `https://YOUR-API.onrender.com/docs` |
+
+## Why not all-on-Vercel?
+
+Vercel failed looking for a Python entrypoint at repo root. Even with an entrypoint, PyTorch + uploads is a poor fit for Vercel serverless. Frontend on Vercel + API on Render is the intended live setup.

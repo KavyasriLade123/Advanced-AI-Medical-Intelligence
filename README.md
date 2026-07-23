@@ -29,7 +29,7 @@ Build a complete end-to-end AI application capable of:
 | Live deployment link | Optional — local/Docker demo, or add cloud URL below |
 | Per-item submission notes | [`docs/submission/`](docs/submission/00_SUBMISSION_INDEX.md) |
 
-**Live deployment link:** _Not deployed yet_  
+**Live deployment link:** _Add Vercel URL after deploy_ (see [Live cloud deploy](#live-cloud-deploy-vercel--render))  
 **GitHub repository link:** https://github.com/KavyasriLade123/Advanced-AI-Medical-Intelligence
 
 ## Objective coverage
@@ -167,6 +167,34 @@ docker compose up --build
 - Backend: http://localhost:8000  
 
 Ensure `backend/models/chest_xray_resnet18.pth` exists before building/running.
+
+## Live cloud deploy (Vercel + Render)
+
+Do **not** deploy the whole monorepo as a Vercel Python app (that caused the “No python entrypoint” error). Use:
+
+| Piece | Host | Notes |
+|-------|------|--------|
+| Frontend | **Vercel** | Root Directory = `frontend`, or use root `vercel.json` |
+| Backend | **Render** | Docker, context = `backend/` |
+
+### Render (API first)
+
+1. New **Web Service** → Docker → Root Directory `backend`
+2. Set `CORS_ORIGINS` to your Vercel URL (after frontend exists; you can update later)
+3. Optional: `OPENAI_API_KEY`
+4. Copy API URL, e.g. `https://medintel-api.onrender.com`
+5. Check `https://…onrender.com/api/health`
+
+Use at least a **Starter** plan — Free tier often OOMs with PyTorch.
+
+### Vercel (UI)
+
+1. Import the same GitHub repo
+2. **Root Directory:** `frontend` (recommended) — avoids Python detection
+3. Env: `VITE_API_BASE_URL` = your Render origin (no trailing slash)
+4. Deploy → submit the `*.vercel.app` URL as the live link
+
+Full checklist: [`docs/submission/08_Live_Deployment_Link.md`](docs/submission/08_Live_Deployment_Link.md)
 
 ## REST API summary
 

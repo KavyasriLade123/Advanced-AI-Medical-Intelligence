@@ -1,0 +1,22 @@
+# Render Blueprint — MedIntel FastAPI + PyTorch backend
+# https://dashboard.render.com → New → Blueprint → connect this GitHub repo
+#
+# Manual alternative: New Web Service → Docker → Root Directory = backend
+
+services:
+  - type: web
+    name: medintel-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: CORS_ORIGINS
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
