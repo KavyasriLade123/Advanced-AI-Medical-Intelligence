@@ -20,8 +20,16 @@ from app.services.report import generate_medical_report
 router = APIRouter(prefix="/predict", tags=["predict"])
 logger = logging.getLogger(__name__)
 
-ALLOWED_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/webp", "image/bmp"}
+ALLOWED_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/jpg",
+    "image/webp",
+    "image/bmp",
+    "application/octet-stream",  # browsers often send this for .webp/.jpg
+}
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
 def _reject(image_path: Path, message: str) -> None:
@@ -42,7 +50,10 @@ async def predict_image(
       2) Identify body part
       3) Predict disease + recommendation
     """
-    if file.content_type and file.content_type.lower() not in ALLOWED_TYPES:
+    suffix = Path(file.filename or "image.png").suffix.lower() or ".png"
+    ctype = (file.content_type or "").lower().strip()
+    type_ok = (not ctype) or ctype in ALLOWED_TYPES or suffix in ALLOWED_SUFFIXES
+    if not type_ok:
         raise HTTPException(status_code=400, detail=MSG_NOT_XRAY)
 
     raw = await file.read()
@@ -51,7 +62,8 @@ async def predict_image(
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="Image too large. Please upload a file under 8 MB.")
 
-    suffix = Path(file.filename or "image.png").suffix.lower() or ".png"
+    if suffix not in ALLOWED_SUFFIXES:
+        suffix = ".png"
     stored_name = f"{uuid.uuid4().hex}{suffix}"
     image_path = UPLOAD_DIR / stored_name
     image_path.write_bytes(raw)

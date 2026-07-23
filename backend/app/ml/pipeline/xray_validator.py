@@ -6,7 +6,12 @@ import logging
 
 from PIL import Image
 
-from app.ml.image_gate import XRAY_ANATOMY_LABELS, _tone_stats, looks_like_photo_or_text
+from app.ml.image_gate import (
+    XRAY_ANATOMY_LABELS,
+    _tone_stats,
+    looks_like_photo_or_text,
+    looks_like_text_without_anatomy,
+)
 from app.ml.pipeline.catalog import MSG_NOT_XRAY, NON_XRAY_LABELS
 
 logger = logging.getLogger(__name__)
@@ -67,6 +72,11 @@ def validate_medical_xray(
         non_xray_mass = sum(float(class_probs.get(k, 0.0)) for k in NON_XRAY_LABELS)
         xray_confidence = max(0.0, 1.0 - non_xray_mass)
         best_label, best_prob, anatomy_mass = _anatomy_signal(class_probs)
+
+    # Text / UI without bone or body-part tissue → not an X-ray
+    if looks_like_text_without_anatomy(image) and anatomy_mass < 0.20:
+        logger.info("Rejected text without anatomy (mid=%.3f anatomy=%.3f)", mid, anatomy_mass)
+        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
     # Text / casual photo without enough tissue gray → reject
     # (model can falsely score "brain" on black+white text screenshots)

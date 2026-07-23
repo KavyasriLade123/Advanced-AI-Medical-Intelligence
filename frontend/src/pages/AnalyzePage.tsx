@@ -107,8 +107,8 @@ export default function AnalyzePage() {
       <section className="panel">
         <h2>Image analysis</h2>
         <p className="lede">
-          Upload a medical image (X-ray, CT, or MRI). When bone structure or a body part is detected,
-          the system returns the prediction. Text-only or non-medical photos show:{" "}
+          Upload a medical X-ray or clinical image (chest, brain, bone, breast, etc.). If the image
+          has text but no bone or body part, it is not an X-ray and shows:{" "}
           <strong>Please upload medical image.</strong>
         </p>
 

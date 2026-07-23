@@ -95,20 +95,20 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
 
 def looks_like_photo_or_text(image: Image.Image) -> bool:
     """
-    Reject text/UI screenshots and natural photos.
-    Allow clinical X-ray / CT / MRI (including multi-slice blue-tinted panels).
+    True when the upload looks like text/UI or a casual photo — not a clinical scan.
+    Watermarks on real X-ray/CT/MRI are OK when tissue mid-tones remain.
     """
     s = _tone_stats(image)
     dark, mid, bright, color, aspect = s["dark"], s["mid"], s["bright"], s["color"], s["aspect"]
     medical_lut = bool(s["medical_lut"])
 
-    # Black canvas + text/UI (almost no tissue gray)
+    # Black canvas + text/UI (almost no tissue gray) → not an X-ray
     if mid < 0.22 and (dark + bright) >= 0.78:
         return True
     # Tall phone screenshot of text/social without anatomy
     if aspect >= 1.65 and mid < 0.28 and not medical_lut:
         return True
-    # Bright document / notes page
+    # Bright document / notes page (text without bones)
     if bright >= 0.55 and mid < 0.40:
         return True
     # Natural color photo (not a medical LUT)
@@ -117,6 +117,20 @@ def looks_like_photo_or_text(image: Image.Image) -> bool:
     if not medical_lut and color >= 40.0:
         return True
     return False
+
+
+def looks_like_text_without_anatomy(image: Image.Image) -> bool:
+    """Text / UI content with no bone or body-part tissue → not an X-ray."""
+    s = _tone_stats(image)
+    mid = float(s["mid"])
+    dark = float(s["dark"])
+    bright = float(s["bright"])
+    # High-contrast text pages / black canvases lack anatomical mid-gray
+    if mid < 0.20 and (dark + bright) >= 0.75:
+        return True
+    if bright >= 0.50 and mid < 0.35:
+        return True
+    return looks_like_photo_or_text(image) and mid < 0.28
 
 
 def has_anatomical_midtones(image: Image.Image, minimum: float = 0.18) -> bool:
