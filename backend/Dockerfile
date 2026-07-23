@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir $(grep -vE '^(torch|torchvision)' requirements.tx
 
 COPY app ./app
 COPY models ./models
+COPY static ./static
 
 RUN mkdir -p data/uploads data/heatmaps
 
