@@ -49,7 +49,7 @@ class MedicalXrayPipeline:
         predicted, confidence, probs = self.unified.predict(tensor)
 
         # Stage 1 — medical X-ray validation
-        min_xray = float(getattr(self.settings, "xray_confidence_threshold", 0.55))
+        min_xray = float(getattr(self.settings, "xray_confidence_threshold", 0.35))
         stage1 = validate_medical_xray(image, probs, min_xray_confidence=min_xray)
         if not stage1.is_xray:
             return PipelineResult(

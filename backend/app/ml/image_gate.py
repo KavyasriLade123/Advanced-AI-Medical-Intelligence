@@ -21,8 +21,8 @@ MEDICAL_LABELS = {
     "SKIN",
 }
 
-# Labels that expect anatomical mid-gray tissue (not black canvases with text).
-ANATOMY_LABELS = {
+# Radiograph-like classes from the unified model
+XRAY_ANATOMY_LABELS = {
     "ABDOMEN",
     "BONE_FRACTURE",
     "BRAIN_NORMAL",
@@ -33,6 +33,8 @@ ANATOMY_LABELS = {
     "NORMAL",
     "PNEUMONIA",
 }
+
+ANATOMY_LABELS = set(XRAY_ANATOMY_LABELS)
 
 
 def _rgb_array(image: Image.Image, size: int = 192) -> np.ndarray:
@@ -51,8 +53,8 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
     w, h = image.size
     return {
         "dark": float((gray < 45).mean()),
-        "mid": float(((gray >= 45) & (gray <= 200)).mean()),
-        "bright": float((gray > 200).mean()),
+        "mid": float(((gray >= 40) & (gray <= 210)).mean()),
+        "bright": float((gray > 210).mean()),
         "color": color,
         "aspect": float(h) / float(max(w, 1)),
     }
@@ -60,31 +62,31 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
 
 def looks_like_photo_or_text(image: Image.Image) -> bool:
     """
-    Instagram/text screenshots are mostly black+white with almost no mid-gray anatomy.
-    Real X-rays/MRI have large mid-tone tissue regions (typically mid > 0.5).
+    Reject text/UI screenshots and colorful non-clinical photos.
+    Do NOT reject phone photos of real X-rays that still have mid-gray anatomy.
     """
     s = _tone_stats(image)
     dark, mid, bright, color, aspect = s["dark"], s["mid"], s["bright"], s["color"], s["aspect"]
 
-    # Black canvas + text/UI (the failing Instagram reel case)
-    if mid < 0.30 and (dark + bright) >= 0.70:
+    # Black canvas + text/UI (almost no tissue gray)
+    if mid < 0.25 and (dark + bright) >= 0.75:
         return True
     # Tall phone screenshot without anatomical mid-tones
-    if aspect >= 1.50 and mid < 0.40:
+    if aspect >= 1.60 and mid < 0.30:
         return True
     # Bright document / notes page
-    if bright >= 0.50 and mid < 0.45:
+    if bright >= 0.55 and mid < 0.40:
         return True
-    # Colorful social/photo content (emojis, UI, selfies)
-    if color >= 16.0 and mid < 0.55:
+    # Colorful consumer photo WITHOUT X-ray mid-tones
+    if color >= 18.0 and mid < 0.35:
         return True
-    if color >= 28.0:
+    # Very colorful non-clinical scene
+    if color >= 35.0 and mid < 0.50:
         return True
     return False
 
 
-def has_anatomical_midtones(image: Image.Image, minimum: float = 0.32) -> bool:
-    """Clinical frames need enough mid-gray tissue; text-on-black does not."""
+def has_anatomical_midtones(image: Image.Image, minimum: float = 0.22) -> bool:
     return _tone_stats(image)["mid"] >= minimum
 
 
@@ -95,20 +97,15 @@ def is_medical_prediction(
     min_confidence: float,
     image: Image.Image | None = None,
 ) -> bool:
-    """
-    Return trained findings only for real medical images.
-    Otherwise caller should show: Please upload medical image.
-    """
     name = label.upper().strip()
     if name == "UNSUPPORTED" or name not in MEDICAL_LABELS:
         return False
     if confidence < min_confidence:
         return False
-    if float(probs.get("UNSUPPORTED", 0.0)) >= 0.40:
+    if float(probs.get("UNSUPPORTED", 0.0)) >= 0.45:
         return False
     if image is not None and looks_like_photo_or_text(image):
         return False
-    # Block "brain tumor" (and other anatomy classes) on non-anatomy screenshots
     if image is not None and name in ANATOMY_LABELS and not has_anatomical_midtones(image):
         return False
     return True

@@ -38,9 +38,9 @@ class Settings(BaseSettings):
         "BREAST_NORMAL,EYE_RETINA,LOWER_LIMB,NORMAL,PNEUMONIA,SKIN,UNSUPPORTED"
     )
     image_size: int = 224
-    min_confidence: float = 0.40
-    # Stage-1 X-ray detector threshold on (1 - P(non-xray)). Raise to 0.95 with a dedicated binary model.
-    xray_confidence_threshold: float = 0.55
+    min_confidence: float = 0.30
+    # Stage-1 threshold on (1 - P(non-xray)). Kept moderate so phone photos of X-rays still pass.
+    xray_confidence_threshold: float = 0.35
     supported_hint: str = "Please upload a valid medical X-ray image."
 
     @property
