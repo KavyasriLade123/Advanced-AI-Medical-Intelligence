@@ -57,18 +57,52 @@ export type Health = {
 /** Empty in local Vite (proxy /api). Set VITE_API_BASE_URL on Vercel to the Render API origin. */
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
+export function getApiBase(): string {
+  return API_BASE;
+}
+
+export function isApiConfigured(): boolean {
+  // Local Vite uses same-origin proxy; production needs an absolute API origin.
+  if (import.meta.env.DEV) return true;
+  return Boolean(API_BASE);
+}
+
 async function readError(res: Response): Promise<string> {
   try {
     const data = await res.json();
     if (typeof data.detail === "string") return data.detail;
     return JSON.stringify(data.detail ?? data);
   } catch {
-    return res.statusText;
+    return res.statusText || `Request failed (${res.status})`;
+  }
+}
+
+function apiHint(): string {
+  if (!isApiConfigured()) {
+    return (
+      "Backend URL is not configured on Vercel. Set VITE_API_BASE_URL to your Render API " +
+      "(e.g. https://medintel-api.onrender.com) and redeploy the frontend."
+    );
+  }
+  return (
+    "Cannot reach the MedIntel API. Check that the Render backend is running and " +
+    "CORS_ORIGINS includes this Vercel site."
+  );
+}
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (!isApiConfigured()) {
+    throw new Error(apiHint());
+  }
+  try {
+    return await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    throw new Error(apiHint());
   }
 }
 
 export async function fetchHealth(): Promise<Health> {
-  const res = await fetch(`${API_BASE}/api/health`);
+  const res = await apiFetch(`/api/health`);
   if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
@@ -76,7 +110,7 @@ export async function fetchHealth(): Promise<Health> {
 export async function predictImage(file: File): Promise<Prediction> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/api/predict?generate_report=true`, {
+  const res = await apiFetch(`/api/predict?generate_report=true`, {
     method: "POST",
     body: form,
   });
@@ -85,19 +119,19 @@ export async function predictImage(file: File): Promise<Prediction> {
 }
 
 export async function fetchHistory(limit = 12): Promise<HistoryList> {
-  const res = await fetch(`${API_BASE}/api/history?limit=${limit}`);
+  const res = await apiFetch(`/api/history?limit=${limit}`);
   if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
 export async function fetchPrediction(id: number): Promise<Prediction> {
-  const res = await fetch(`${API_BASE}/api/history/${id}`);
+  const res = await apiFetch(`/api/history/${id}`);
   if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
 export async function regenerateReport(id: number): Promise<{ report: string; source: string }> {
-  const res = await fetch(`${API_BASE}/api/reports`, {
+  const res = await apiFetch(`/api/reports`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prediction_id: id }),
