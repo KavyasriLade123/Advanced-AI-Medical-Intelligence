@@ -56,8 +56,12 @@ def overlay_gradcam(
     original: Image.Image,
     cam: np.ndarray,
     alpha: float = 0.45,
+    max_side: int = 512,
 ) -> Image.Image:
-    img = np.array(original.convert("RGB"))
+    # Downscale before overlay to avoid OOM on small Render Free instances.
+    base = original.convert("RGB")
+    base.thumbnail((max_side, max_side))
+    img = np.array(base)
     heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
     heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[0]))

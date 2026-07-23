@@ -20,7 +20,9 @@ class ChestXRayClassifier:
         self.model.eval()
 
     def _build_model(self) -> nn.Module:
-        model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        # Skip ImageNet download when fine-tuned weights exist (saves RAM on Render Free).
+        weights = None if WEIGHTS_PATH.exists() else models.ResNet18_Weights.IMAGENET1K_V1
+        model = models.resnet18(weights=weights)
         in_features = model.fc.in_features
         model.fc = nn.Linear(in_features, len(self.labels))
         return model

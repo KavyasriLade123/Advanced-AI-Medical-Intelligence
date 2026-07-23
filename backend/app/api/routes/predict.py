@@ -1,3 +1,4 @@
+import gc
 import json
 import uuid
 from pathlib import Path
@@ -16,6 +17,7 @@ from app.services.report import generate_medical_report
 router = APIRouter(prefix="/predict", tags=["predict"])
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/webp", "image/bmp"}
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB
 
 
 def _reject(image_path: Path, message: str) -> None:
@@ -40,6 +42,11 @@ async def predict_image(
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file uploaded. Please upload a correct medical image.")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="Image too large. Please upload a file under 8 MB.",
+        )
 
     suffix = Path(file.filename or "image.png").suffix.lower() or ".png"
     stored_name = f"{uuid.uuid4().hex}{suffix}"
@@ -48,6 +55,8 @@ async def predict_image(
 
     try:
         image = load_image(raw)
+        # Cap resolution to keep Render Free under memory limits
+        image.thumbnail((1024, 1024))
         tensor = preprocess_image(image)
         classifier = get_classifier()
         predicted, confidence, probs = classifier.predict(tensor)
@@ -63,22 +72,29 @@ async def predict_image(
             "(Brain, Eye/Retina, Breast, Chest X-ray, Abdomen, Skin, Bone fracture, or Lower limb).",
         )
 
+    heatmap_name: str | None = None
     try:
         class_idx = classifier.labels.index(predicted)
         heatmap_name = f"{Path(stored_name).stem}_gradcam.png"
         heatmap_path = HEATMAP_DIR / heatmap_name
         explain_prediction(classifier, tensor, image, heatmap_path, class_idx=class_idx)
-    except Exception as exc:
-        _reject(image_path, f"Prediction failed while explaining the image: {exc}")
+    except Exception:
+        # Grad-CAM can OOM on Free tier — still return the prediction.
+        heatmap_name = None
+    finally:
+        gc.collect()
 
     report_text = None
     if generate_report:
-        report_text, _ = await generate_medical_report(
-            predicted_class=predicted,
-            confidence=confidence,
-            probabilities=probs,
-            filename=file.filename or stored_name,
-        )
+        try:
+            report_text, _ = await generate_medical_report(
+                predicted_class=predicted,
+                confidence=confidence,
+                probabilities=probs,
+                filename=file.filename or stored_name,
+            )
+        except Exception:
+            report_text = None
 
     record = PredictionRecord(
         filename=stored_name,
@@ -101,7 +117,7 @@ async def predict_image(
         probabilities=[ProbabilityItem(label=k, probability=v) for k, v in probs.items()],
         disease_info=DiseaseInfo(**get_disease_info(record.predicted_class)),
         image_url=f"/api/media/uploads/{stored_name}",
-        heatmap_url=f"/api/media/heatmaps/{heatmap_name}",
+        heatmap_url=f"/api/media/heatmaps/{heatmap_name}" if heatmap_name else None,
         report=report_text,
         model_mode=record.model_mode,
         created_at=record.created_at,
