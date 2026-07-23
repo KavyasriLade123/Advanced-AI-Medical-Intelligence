@@ -93,12 +93,30 @@ def validate_medical_xray(
     clear_person = looks_like_person_or_color_photo(image) and not (corr >= 0.985 and color < 32.0)
     clear_text = looks_like_text_without_anatomy(image)
 
+    bones_detected = best_label in BONE_BODY_LABELS and best_prob >= 0.28 and mid >= 0.18
+
+    # Whenever bones / radiographic anatomy are detected → always return output
+    # (color-tinted chest films with watermarks still show ribs/clavicles/spine)
+    if bones_detected and not clear_ui:
+        if clear_person and skin >= 0.15 and corr < 0.94 and (det_p is None or det_p < 0.70):
+            # Real selfie with weak X-ray score — keep rejected
+            pass
+        else:
+            logger.info(
+                "Bones/anatomy accepted: %s=%.3f det=%s",
+                best_label,
+                best_prob,
+                f"{det_p:.3f}" if det_p is not None else "n/a",
+            )
+            return XrayValidationResult(True, max(best_prob, det_p or 0.0, bone_mass), "")
+
     # Trained detector: accept real X-rays / MRI even if phone color cast looks like "skin"
     if det_p is not None and det_p >= DETECTOR_ACCEPT:
         if clear_ui and det_p < 0.90:
             logger.info("Rejected UI despite detector P=%.3f", det_p)
             return XrayValidationResult(False, det_p, MSG_NOT_XRAY)
-        if clear_person and skin >= 0.05 and corr < 0.98:
+        # Tinted clinical X-rays can match naive "skin" rules — trust detector + midtones
+        if clear_person and skin >= 0.08 and corr < 0.95 and det_p < 0.85 and mid < 0.35:
             logger.info("Rejected person photo despite detector P=%.3f", det_p)
             return XrayValidationResult(False, det_p, MSG_NOT_XRAY)
         if clear_text and mid < 0.22 and det_p < 0.85:
