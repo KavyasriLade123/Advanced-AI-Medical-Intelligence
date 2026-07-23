@@ -96,12 +96,12 @@ async function readError(res: Response): Promise<string> {
 }
 
 function apiHint(cause?: string): string {
-  const target = API_BASE || "the proxied /api route";
+  const target = API_BASE || "/api";
   const extra = cause ? ` (${cause})` : "";
   return (
-    `Cannot reach the MedIntel API via ${target}${extra}. ` +
-    "Render Free may be waking up — open https://advanced-ai-medical-intelligence-4og2.onrender.com/api/health, " +
-    "wait until JSON appears, then click Predict again (can take 30–90 seconds)."
+    `Cannot reach the MedIntel API at ${target}${extra}. ` +
+    "Wake the API first: open https://advanced-ai-medical-intelligence-4og2.onrender.com/api/health " +
+    "and wait for JSON, then try Predict again (Free tier can take 30–90s)."
   );
 }
 
@@ -133,7 +133,8 @@ export async function fetchHealth(): Promise<Health> {
 export async function predictImage(file: File): Promise<Prediction> {
   const form = new FormData();
   form.append("file", file);
-  const res = await apiFetch(`/api/predict?generate_report=true`, {
+  // Skip LLM on first pass for faster Free-tier responses; UI can regenerate report.
+  const res = await apiFetch(`/api/predict?generate_report=false`, {
     method: "POST",
     body: form,
   });
