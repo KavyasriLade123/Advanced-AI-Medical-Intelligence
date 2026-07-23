@@ -60,7 +60,7 @@ export default function AnalyzePage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Please upload medical image.",
+          : "Please upload a valid medical X-ray image.",
       );
     } finally {
       setLoading(false);
@@ -107,8 +107,9 @@ export default function AnalyzePage() {
       <section className="panel">
         <h2>Image analysis</h2>
         <p className="lede">
-          Upload a trained medical image (X-ray / clinical scan). If it matches a trained class you
-          get the finding; photos or text show: <strong>Please upload medical image.</strong>
+          Upload a medical X-ray only. The system validates the image, detects the body part, then
+          predicts disease. Non-X-ray uploads show:{" "}
+          <strong>Please upload a valid medical X-ray image.</strong>
         </p>
 
         <div
@@ -126,7 +127,7 @@ export default function AnalyzePage() {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
           <div>
-            <strong>Drop a medical image here</strong>
+            <strong>Drop a medical X-ray here</strong>
             <span>or click to browse from your device</span>
             {file ? <div className="preview-name">{file.name}</div> : null}
           </div>
@@ -170,30 +171,48 @@ export default function AnalyzePage() {
           <div className="result-meta">
             <div>
               <h2>Prediction</h2>
-              <p className="lede">Result for this uploaded image only</p>
+              <p className="lede">
+                {result.is_xray !== false
+                  ? `✅ ${result.body_part || "Medical"} X-ray detected.`
+                  : "Result for this upload"}
+              </p>
             </div>
+            {result.body_part ? (
+              <div className="metric">
+                <span className="label">Body Part</span>
+                <span className="value">{result.body_part}</span>
+              </div>
+            ) : null}
             <div className="metric">
-              <span className="label">Finding</span>
+              <span className="label">Prediction</span>
               <span
                 className={`value ${
-                  ["PNEUMONIA", "BONE_FRACTURE", "BRAIN_TUMOR", "BREAST_MALIGNANT"].includes(
-                    result.predicted_class.toUpperCase(),
+                  /pneumonia|fracture|tumor|covid|tuberculosis|malignant|abnormal/i.test(
+                    result.disease || result.predicted_class,
                   )
                     ? "warn"
                     : ""
                 }`}
               >
-                {result.predicted_class}
+                {result.disease || result.predicted_class}
               </span>
             </div>
             <div className="metric">
               <span className="label">Confidence</span>
               <span className="value">{formatPct(result.confidence)}</span>
             </div>
+            {result.recommendation ? (
+              <div className="metric">
+                <span className="label">Doctor recommendation</span>
+                <span className="value" style={{ fontSize: "1rem", fontWeight: 600 }}>
+                  {result.recommendation}
+                </span>
+              </div>
+            ) : null}
             <div className="bars">
               <div className="bar-row">
                 <header>
-                  <span>{result.predicted_class}</span>
+                  <span>{result.disease || result.predicted_class}</span>
                   <span>{formatPct(result.confidence)}</span>
                 </header>
                 <div className="track">
@@ -201,11 +220,6 @@ export default function AnalyzePage() {
                 </div>
               </div>
             </div>
-            {result.disease_info ? (
-              <p className="lede" style={{ marginTop: "0.75rem" }}>
-                Body region: {result.disease_info.body_region}
-              </p>
-            ) : null}
           </div>
 
           <div style={{ gridColumn: "1 / -1" }}>

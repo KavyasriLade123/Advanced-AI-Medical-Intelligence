@@ -27,6 +27,12 @@ export type Prediction = {
   report: string | null;
   model_mode: string;
   created_at: string;
+  is_xray?: boolean;
+  body_part?: string | null;
+  disease?: string | null;
+  recommendation?: string | null;
+  xray_confidence?: number | null;
+  body_part_confidence?: number | null;
 };
 
 export type HistoryItem = {

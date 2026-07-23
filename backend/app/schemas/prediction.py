@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +23,7 @@ class DiseaseInfo(BaseModel):
 
 class PredictionResponse(BaseModel):
     id: int
+    # Legacy field (disease / finding code)
     predicted_class: str
     confidence: float
     probabilities: list[ProbabilityItem]
@@ -33,6 +33,13 @@ class PredictionResponse(BaseModel):
     report: str | None = None
     model_mode: str
     created_at: datetime
+    # Three-stage X-ray pipeline fields
+    is_xray: bool = True
+    body_part: str | None = None
+    disease: str | None = None
+    recommendation: str | None = None
+    xray_confidence: float | None = None
+    body_part_confidence: float | None = None
 
 
 class HistoryItem(BaseModel):
@@ -45,6 +52,8 @@ class HistoryItem(BaseModel):
     image_url: str
     heatmap_url: str | None = None
     has_report: bool = False
+    body_part: str | None = None
+    disease: str | None = None
 
 
 class HistoryListResponse(BaseModel):
@@ -69,3 +78,4 @@ class HealthResponse(BaseModel):
     model_mode: str
     classes: list[str]
     requirements: dict[str, str] | None = None
+    pipeline: dict[str, str] | None = None

@@ -39,7 +39,9 @@ class Settings(BaseSettings):
     )
     image_size: int = 224
     min_confidence: float = 0.40
-    supported_hint: str = "Please upload medical image."
+    # Stage-1 X-ray detector threshold on (1 - P(non-xray)). Raise to 0.95 with a dedicated binary model.
+    xray_confidence_threshold: float = 0.55
+    supported_hint: str = "Please upload a valid medical X-ray image."
 
     @property
     def origins(self) -> list[str]:

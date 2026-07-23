@@ -26,4 +26,9 @@ def health() -> HealthResponse:
             "prediction_history_database": "enabled",
             "user_interface": "enabled",
         },
+        pipeline={
+            "stage1": "xray_validation",
+            "stage2": "body_part_classification",
+            "stage3": "disease_prediction",
+        },
     )

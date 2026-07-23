@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-REJECT_MESSAGE = "Please upload medical image."
+REJECT_MESSAGE = "Please upload a valid medical X-ray image."
 
 MEDICAL_LABELS = {
     "ABDOMEN",
