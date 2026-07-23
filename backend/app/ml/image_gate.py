@@ -69,16 +69,55 @@ def _skin_fraction(arr: np.ndarray) -> float:
     return float(skin.mean())
 
 
+def _ui_panel_stats(gray: np.ndarray, block: int = 16) -> tuple[float, float]:
+    """
+    Flat UI panels (IDE/web screenshots) have many low-variance blocks.
+    Real X-ray/MRI tissue has continuous texture → fewer flat blocks.
+    Returns (flat_fraction, busy_fraction).
+    """
+    h, w = gray.shape
+    vars_: list[float] = []
+    for y in range(0, h - block, block):
+        for x in range(0, w - block, block):
+            vars_.append(float(gray[y : y + block, x : x + block].var()))
+    if not vars_:
+        return 0.0, 0.0
+    v = np.asarray(vars_, dtype=np.float32)
+    return float((v < 45.0).mean()), float((v > 500.0).mean())
+
+
+def looks_like_ui_screenshot(image: Image.Image) -> bool:
+    """Dark IDE / website / app screenshots with flat panels — not an X-ray."""
+    arr = _rgb_array(image, size=256)
+    gray = _gray_from_rgb(arr)
+    flat, busy = _ui_panel_stats(gray)
+    dark = float((gray < 50).mean())
+    # Flat chrome + dark theme (VS Code, dashboards, etc.)
+    if flat >= 0.45 and busy <= 0.35:
+        return True
+    if flat >= 0.40 and dark >= 0.55 and busy <= 0.25:
+        return True
+    # Mostly black canvas with sparse bright UI/text
+    mid = float(((gray >= 35) & (gray <= 220)).mean())
+    if dark >= 0.70 and mid < 0.35 and flat >= 0.30:
+        return True
+    return False
+
+
 def _is_medical_display_lut(arr: np.ndarray) -> bool:
     """
     True ONLY for near-grayscale X-ray films or blue/cyan PACS CT/MRI panels.
-    Person photos (skin tones) always return False.
+    Person photos and flat UI screenshots always return False.
     """
     gray = _gray_from_rgb(arr)
     mid_frac = float(((gray >= 35) & (gray <= 220)).mean())
     if mid_frac < 0.12:
         return False
     if _skin_fraction(arr) >= 0.015:
+        return False
+    # Full-res flatness on the same array size as tone stats helper uses elsewhere
+    flat, busy = _ui_panel_stats(gray if gray.shape[0] >= 128 else _gray_from_rgb(arr))
+    if flat >= 0.45 and busy <= 0.35:
         return False
 
     r, g, b = arr[:, :, 0].ravel(), arr[:, :, 1].ravel(), arr[:, :, 2].ravel()
@@ -87,6 +126,10 @@ def _is_medical_display_lut(arr: np.ndarray) -> bool:
     r_m, g_m, b_m = float(r.mean()), float(g.mean()), float(b.mean())
 
     if mean_chroma < 10.0:
+        # Dark IDE themes are near-gray but not X-rays
+        dark = float((gray < 45).mean())
+        if dark >= 0.55 and mid_frac < 0.45:
+            return False
         return True
 
     mean_corr = (_channel_corr(r, g) + _channel_corr(r, b) + _channel_corr(g, b)) / 3.0
@@ -102,6 +145,7 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
     r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
     color = float((np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3.0)
     sat = float(np.mean(np.abs(r - gray) + np.abs(g - gray) + np.abs(b - gray)) / 3.0)
+    flat, busy = _ui_panel_stats(_gray_from_rgb(_rgb_array(image, size=256)))
     w, h = image.size
     return {
         "dark": float((gray < 45).mean()),
@@ -110,6 +154,8 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
         "color": color,
         "sat": sat,
         "skin": _skin_fraction(arr),
+        "flat": flat,
+        "busy": busy,
         "aspect": float(h) / float(max(w, 1)),
         "medical_lut": 1.0 if _is_medical_display_lut(arr) else 0.0,
         "r_mean": float(r.mean()),
@@ -152,6 +198,8 @@ def looks_like_photo_or_text(image: Image.Image) -> bool:
     dark, mid, bright, color, aspect = s["dark"], s["mid"], s["bright"], s["color"], s["aspect"]
     medical_lut = bool(s["medical_lut"])
 
+    if looks_like_ui_screenshot(image):
+        return True
     if looks_like_person_or_color_photo(image):
         return True
     if mid < 0.22 and (dark + bright) >= 0.78:
@@ -170,6 +218,8 @@ def looks_like_text_without_anatomy(image: Image.Image) -> bool:
     mid = float(s["mid"])
     dark = float(s["dark"])
     bright = float(s["bright"])
+    if looks_like_ui_screenshot(image):
+        return True
     if mid < 0.20 and (dark + bright) >= 0.75:
         return True
     if bright >= 0.50 and mid < 0.35:

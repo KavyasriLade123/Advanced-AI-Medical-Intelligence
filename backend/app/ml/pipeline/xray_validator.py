@@ -14,6 +14,7 @@ from app.ml.image_gate import (
     looks_like_person_or_color_photo,
     looks_like_photo_or_text,
     looks_like_text_without_anatomy,
+    looks_like_ui_screenshot,
 )
 from app.ml.pipeline.catalog import MSG_NOT_XRAY
 
@@ -72,6 +73,17 @@ def validate_medical_xray(
         top_label = top_label.upper()
         top_prob = float(top_prob)
         best_label, best_prob, bone_mass = _bone_signal(class_probs)
+
+    # Hard reject: IDE / website / app screenshots (flat UI panels)
+    if looks_like_ui_screenshot(image) or float(tones.get("flat", 0.0)) >= 0.45:
+        logger.info(
+            "Rejected UI screenshot flat=%.3f busy=%.3f dark=%.3f top=%s",
+            tones.get("flat", 0.0),
+            tones.get("busy", 0.0),
+            tones["dark"],
+            top_label,
+        )
+        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
     # Hard reject: color camera photos of people / rooms / clothes
     if looks_like_person_or_color_photo(image) or float(tones.get("skin", 0.0)) >= 0.012:
