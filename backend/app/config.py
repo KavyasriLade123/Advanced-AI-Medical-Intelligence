@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{(DATA_DIR / 'medintel.db').as_posix()}"
     cors_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,"
-        "http://192.168.0.8:5173"
+        "http://192.168.0.8:5173,"
+        "https://advanced-ai-medical-intelligence-jy.vercel.app,"
+        "https://advanced-ai-medical-intelligence-4og2.onrender.com"
     )
     # Local + LAN + Vercel preview/production domains
     cors_origin_regex: str = (

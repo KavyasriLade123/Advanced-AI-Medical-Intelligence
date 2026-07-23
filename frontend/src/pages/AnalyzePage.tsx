@@ -50,7 +50,8 @@ export default function AnalyzePage() {
     setLoading(true);
     setError(null);
     try {
-      const prediction = await predictImage(file);
+      const prediction = await predictImage(file, (msg) => setError(msg));
+      setError(null);
       setResult(prediction);
       await refreshHistory();
       workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -134,7 +135,7 @@ export default function AnalyzePage() {
 
         <div className="cta-row" style={{ marginTop: "1rem" }}>
           <button className="btn btn-primary" type="button" disabled={!file || loading} onClick={onAnalyze}>
-            {loading ? "Running model…" : "Predict + explain"}
+            {loading ? "Please wait (waking API / running model)…" : "Predict + explain"}
           </button>
           {result ? (
             <button className="btn btn-ghost" type="button" disabled={loading} onClick={onRegenReport}>

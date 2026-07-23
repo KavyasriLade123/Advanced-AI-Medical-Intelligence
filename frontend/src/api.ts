@@ -54,7 +54,7 @@ export type Health = {
   classes: string[];
 };
 
-/** Build-time default; overridden at runtime by /config.json then VITE_API_BASE_URL. */
+/** Build-time default; overridden at runtime by /config.json. */
 let API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
 /** Call once before rendering (main.tsx). Loads public/config.json if present. */
@@ -63,8 +63,6 @@ export async function initApiBase(): Promise<void> {
     const res = await fetch("/config.json", { cache: "no-store" });
     if (!res.ok) return;
     const cfg = (await res.json()) as { apiBaseUrl?: string };
-    // If apiBaseUrl is present (even ""), prefer it so Vercel same-origin /api proxy works
-    // even when VITE_API_BASE_URL was set at build time.
     if (Object.prototype.hasOwnProperty.call(cfg, "apiBaseUrl")) {
       API_BASE = String(cfg.apiBaseUrl ?? "")
         .trim()
@@ -80,8 +78,6 @@ export function getApiBase(): string {
 }
 
 export function isApiConfigured(): boolean {
-  // Local Vite and Vercel both proxy /api (vite.config / vercel.json rewrites).
-  // Optional absolute API_BASE still works if set via env or config.json.
   return true;
 }
 
@@ -100,24 +96,46 @@ function apiHint(cause?: string): string {
   const extra = cause ? ` (${cause})` : "";
   return (
     `Cannot reach the MedIntel API at ${target}${extra}. ` +
-    "Wake the API first: open https://advanced-ai-medical-intelligence-4og2.onrender.com/api/health " +
-    "and wait for JSON, then try Predict again (Free tier can take 30–90s)."
+    "Prefer the Render app (same server as the API): https://advanced-ai-medical-intelligence-4og2.onrender.com/analyze — " +
+    "or wake https://advanced-ai-medical-intelligence-4og2.onrender.com/api/health first (Free tier 30–90s)."
   );
+}
+
+/** Poll health until Render Free finishes waking (up to ~2 minutes). */
+export async function wakeApi(onStatus?: (msg: string) => void): Promise<Health> {
+  const started = Date.now();
+  const deadline = started + 120_000;
+  let attempt = 0;
+  let lastErr: unknown;
+
+  while (Date.now() < deadline) {
+    attempt += 1;
+    onStatus?.(`Waking API… attempt ${attempt} (${Math.round((Date.now() - started) / 1000)}s)`);
+    try {
+      const res = await fetch(`${API_BASE}/api/health`, { cache: "no-store" });
+      if (res.ok) {
+        const health = (await res.json()) as Health;
+        if (health.status === "ok") return health;
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+
+  const msg = lastErr instanceof Error ? lastErr.message : "timeout";
+  throw new Error(apiHint(msg));
 }
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = `${API_BASE}${path}`;
   let lastErr: unknown;
-  // Render Free cold-starts often fail the first 1–2 browser requests.
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const res = await fetch(url, init);
-      return res;
+      return await fetch(url, init);
     } catch (err) {
       lastErr = err;
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, attempt * 2500));
-      }
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
     }
   }
   const msg = lastErr instanceof Error ? lastErr.message : "network error";
@@ -125,15 +143,14 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 }
 
 export async function fetchHealth(): Promise<Health> {
-  const res = await apiFetch(`/api/health`);
-  if (!res.ok) throw new Error(await readError(res));
-  return res.json();
+  return wakeApi();
 }
 
-export async function predictImage(file: File): Promise<Prediction> {
+export async function predictImage(file: File, onStatus?: (msg: string) => void): Promise<Prediction> {
+  await wakeApi(onStatus);
+  onStatus?.("Running model…");
   const form = new FormData();
   form.append("file", file);
-  // Skip LLM on first pass for faster Free-tier responses; UI can regenerate report.
   const res = await apiFetch(`/api/predict?generate_report=false`, {
     method: "POST",
     body: form,

@@ -11,6 +11,8 @@ from app.config import DATA_DIR, HEATMAP_DIR, UPLOAD_DIR, ensure_directories, ge
 from app.database import init_db
 from app.ml import get_classifier
 
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -28,7 +30,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
     allow_origin_regex=settings.cors_origin_regex,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -36,15 +38,6 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.api_prefix)
 app.mount("/api/media/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 app.mount("/api/media/heatmaps", StaticFiles(directory=str(HEATMAP_DIR)), name="heatmaps")
-
-
-@app.get("/")
-def root() -> dict:
-    return {
-        "name": settings.app_name,
-        "docs": "/docs",
-        "health": "/api/health",
-    }
 
 
 @app.get("/api/media/file")
@@ -56,3 +49,17 @@ def get_media_file(kind: str, name: str) -> FileResponse:
     if not str(path).startswith(str(base.resolve())) or not path.exists():
         raise HTTPException(status_code=404, detail="File not found.")
     return FileResponse(path)
+
+
+# Prefer built React UI (same origin as API — avoids browser CORS / Failed to fetch).
+if (STATIC_DIR / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+else:
+
+    @app.get("/")
+    def root() -> dict:
+        return {
+            "name": settings.app_name,
+            "docs": "/docs",
+            "health": "/api/health",
+        }
