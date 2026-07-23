@@ -55,13 +55,13 @@ def looks_like_photo_or_text(image: Image.Image) -> bool:
     hp = _highpass_energy(gray)
 
     # White/light page with text (documents, notes, screenshots of articles)
-    if bright >= 0.40 and hp >= 4.5:
+    if bright >= 0.35 and hp >= 4.0:
         return True
-    # Dark-theme text UI (not X-ray — X-rays ~hp 2.5 on samples)
-    if dark >= 0.75 and hp >= 3.1:
+    # Dark-theme text UI (chest X-rays are smoother: hp ~2.5 on open samples)
+    if dark >= 0.65 and hp >= 3.0:
         return True
     # Extreme glyph detail
-    if hp >= 8.0:
+    if hp >= 7.5:
         return True
     return False
 
