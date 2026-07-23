@@ -1,4 +1,4 @@
-"""Stage 1 — trained X-ray detector + hard rejects for people/UI/text."""
+"""Stage 1 — trained X-ray detector + rejects for people/UI/text."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from app.ml.pipeline.xray_detector import get_xray_detector
 
 logger = logging.getLogger(__name__)
 
-# Trained detector thresholds (keep person/UI hard rejects above these)
 DETECTOR_ACCEPT = 0.55
 DETECTOR_REJECT = 0.35
 
@@ -58,14 +57,17 @@ def validate_medical_xray(
     min_anatomy_midtone: float = 0.16,
 ) -> XrayValidationResult:
     """
-    1) Always reject person photos / UI screenshots / text-only (unchanged).
-    2) Prefer trained X-ray detector when weights are present.
-    3) Fall back to clinical LUT + bone-label heuristics.
+    Prefer the trained X-ray detector for real films (including phone photos of X-rays).
+    Still reject person photos, UI screenshots, and text-only uploads.
     """
     tones = _tone_stats(image)
     mid = float(tones["mid"])
     medical_lut = bool(tones["medical_lut"])
     color = float(tones["color"])
+    corr = float(tones.get("corr", 0.0))
+    flat = float(tones.get("flat", 0.0))
+    busy = float(tones.get("busy", 0.0))
+    skin = float(tones.get("skin", 0.0))
 
     best_label = ""
     best_prob = 0.0
@@ -79,33 +81,41 @@ def validate_medical_xray(
         top_prob = float(top_prob)
         best_label, best_prob, bone_mass = _bone_signal(class_probs)
 
-    # --- Hard rejects (do not soften) ---
-    if looks_like_ui_screenshot(image) or float(tones.get("flat", 0.0)) >= 0.45:
-        logger.info("Rejected UI screenshot flat=%.3f", tones.get("flat", 0.0))
-        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
-
-    if looks_like_person_or_color_photo(image) or float(tones.get("skin", 0.0)) >= 0.012:
-        logger.info("Rejected person/color photo skin=%.3f color=%.1f", tones.get("skin", 0.0), color)
-        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
-
-    if looks_like_text_without_anatomy(image):
-        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
-
-    # --- Trained detector ---
     detector = get_xray_detector()
     det_p = detector.predict_proba(image) if detector.available else None
-    if det_p is not None:
-        logger.info("X-ray detector P(xray)=%.3f top=%s bone=%.3f", det_p, top_label, best_prob)
-        if det_p >= DETECTOR_ACCEPT:
-            return XrayValidationResult(True, det_p, "")
-        if det_p < DETECTOR_REJECT:
+
+    clear_ui = looks_like_ui_screenshot(image) or (flat >= 0.50 and busy <= 0.20)
+    clear_person = looks_like_person_or_color_photo(image) and not (corr >= 0.985 and color < 32.0)
+    clear_text = looks_like_text_without_anatomy(image)
+
+    # Trained detector: accept real X-rays / MRI even if phone color cast looks like "skin"
+    if det_p is not None and det_p >= DETECTOR_ACCEPT:
+        if clear_ui and det_p < 0.90:
+            logger.info("Rejected UI despite detector P=%.3f", det_p)
             return XrayValidationResult(False, det_p, MSG_NOT_XRAY)
-        # Uncertain band: require clinical look + bone signal
+        if clear_person and skin >= 0.05 and corr < 0.98:
+            logger.info("Rejected person photo despite detector P=%.3f", det_p)
+            return XrayValidationResult(False, det_p, MSG_NOT_XRAY)
+        if clear_text and mid < 0.22 and det_p < 0.85:
+            return XrayValidationResult(False, det_p, MSG_NOT_XRAY)
+        logger.info("X-ray accepted by detector P=%.3f corr=%.3f", det_p, corr)
+        return XrayValidationResult(True, det_p, "")
+
+    # Hard rejects when detector is missing or unsure
+    if clear_ui or flat >= 0.45:
+        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
+    if clear_person or (skin >= 0.05 and corr < 0.98):
+        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
+    if clear_text:
+        return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
+
+    if det_p is not None and det_p < DETECTOR_REJECT:
+        return XrayValidationResult(False, det_p, MSG_NOT_XRAY)
 
     if looks_like_photo_or_text(image) and not medical_lut:
         return XrayValidationResult(False, 0.0, MSG_NOT_XRAY)
 
-    if not medical_lut and (det_p is None or det_p < DETECTOR_ACCEPT):
+    if not medical_lut:
         return XrayValidationResult(False, mid, MSG_NOT_XRAY)
 
     if mid < min_anatomy_midtone:
@@ -113,7 +123,6 @@ def validate_medical_xray(
 
     if class_probs:
         if best_prob < MIN_BONE_CONFIDENCE and bone_mass < 0.55:
-            # Detector uncertain + weak labels
             if det_p is not None and det_p >= 0.45 and medical_lut and mid >= 0.20:
                 return XrayValidationResult(True, max(det_p, bone_mass), "")
             return XrayValidationResult(False, best_prob, MSG_NOT_XRAY)

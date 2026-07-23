@@ -146,6 +146,11 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
     color = float((np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3.0)
     sat = float(np.mean(np.abs(r - gray) + np.abs(g - gray) + np.abs(b - gray)) / 3.0)
     flat, busy = _ui_panel_stats(_gray_from_rgb(_rgb_array(image, size=256)))
+    corr = (
+        _channel_corr(r.ravel(), g.ravel())
+        + _channel_corr(r.ravel(), b.ravel())
+        + _channel_corr(g.ravel(), b.ravel())
+    ) / 3.0
     w, h = image.size
     return {
         "dark": float((gray < 45).mean()),
@@ -156,6 +161,7 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
         "skin": _skin_fraction(arr),
         "flat": flat,
         "busy": busy,
+        "corr": float(corr),
         "aspect": float(h) / float(max(w, 1)),
         "medical_lut": 1.0 if _is_medical_display_lut(arr) else 0.0,
         "r_mean": float(r.mean()),
@@ -165,22 +171,25 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
 
 
 def looks_like_person_or_color_photo(image: Image.Image) -> bool:
-    """True for selfies / group photos. Clinical gray/blue scans return False."""
+    """True for selfies / group photos. Phone photos of X-rays return False."""
     s = _tone_stats(image)
     skin = float(s["skin"])
     color = float(s["color"])
     sat = float(s["sat"])
     medical_lut = bool(s["medical_lut"])
+    corr = float(s["corr"])
     blue_gap = float(s["b_mean"]) - float(s["r_mean"])
 
-    # Any meaningful skin → people photo
+    # Phone photo of an X-ray: channels stay highly correlated (same anatomy in R/G/B)
+    if corr >= 0.985 and color < 32.0:
+        return False
+
     if skin >= 0.012:
         return True
 
-    # Colorful image that is not a strong blue PACS panel
-    if color >= 10.0 and blue_gap < 18.0:
+    if color >= 10.0 and blue_gap < 18.0 and corr < 0.985:
         return True
-    if sat >= 6.0 and blue_gap < 18.0:
+    if sat >= 6.0 and blue_gap < 18.0 and corr < 0.985:
         return True
 
     if medical_lut and color < 12.0 and skin < 0.01:

@@ -88,9 +88,11 @@ class MedicalXrayPipeline:
         )
 
         # Keep hard rejects for people / UI even if disease head is confident
-        from app.ml.image_gate import looks_like_person_or_color_photo, looks_like_ui_screenshot
+        from app.ml.image_gate import _tone_stats, looks_like_person_or_color_photo, looks_like_ui_screenshot
 
-        if looks_like_person_or_color_photo(image) or looks_like_ui_screenshot(image):
+        tones = _tone_stats(image)
+        clear_person = looks_like_person_or_color_photo(image) and float(tones.get("corr", 1.0)) < 0.98
+        if looks_like_ui_screenshot(image) or clear_person:
             return PipelineResult(
                 ok=False,
                 is_xray=False,

@@ -79,3 +79,4 @@ class HealthResponse(BaseModel):
     classes: list[str]
     requirements: dict[str, str] | None = None
     pipeline: dict[str, str] | None = None
+    xray_gate_loaded: bool | None = None
