@@ -185,7 +185,7 @@ Do **not** deploy the whole monorepo as a Vercel Python app (that caused the “
 4. Copy API URL, e.g. `https://medintel-api.onrender.com`
 5. Check `https://…onrender.com/api/health`
 
-Use at least a **Starter** plan — Free tier often OOMs with PyTorch.
+**Free** plan works for demos (CPU Torch image). Expect cold starts after idle sleep; if it OOMs, upgrade later or use Hugging Face Spaces.
 
 ### Vercel (UI)
 

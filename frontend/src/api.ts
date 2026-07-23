@@ -54,8 +54,21 @@ export type Health = {
   classes: string[];
 };
 
-/** Empty in local Vite (proxy /api). Set VITE_API_BASE_URL on Vercel to the Render API origin. */
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+/** Build-time default; overridden at runtime by /config.json then VITE_API_BASE_URL. */
+let API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
+/** Call once before rendering (main.tsx). Loads public/config.json if present. */
+export async function initApiBase(): Promise<void> {
+  try {
+    const res = await fetch("/config.json", { cache: "no-store" });
+    if (!res.ok) return;
+    const cfg = (await res.json()) as { apiBaseUrl?: string };
+    const fromFile = (cfg.apiBaseUrl ?? "").trim().replace(/\/$/, "");
+    if (fromFile) API_BASE = fromFile;
+  } catch {
+    /* keep build-time value */
+  }
+}
 
 export function getApiBase(): string {
   return API_BASE;
@@ -80,13 +93,12 @@ async function readError(res: Response): Promise<string> {
 function apiHint(): string {
   if (!isApiConfigured()) {
     return (
-      "Backend URL is not configured on Vercel. Set VITE_API_BASE_URL to your Render API " +
-      "(e.g. https://medintel-api.onrender.com) and redeploy the frontend."
+      "Backend URL is not configured. On Vercel set VITE_API_BASE_URL to your Render API " +
+      "(e.g. https://medintel-api.onrender.com), or put that URL in frontend/public/config.json as apiBaseUrl, then redeploy."
     );
   }
   return (
-    "Cannot reach the MedIntel API. Check that the Render backend is running and " +
-    "CORS_ORIGINS includes this Vercel site."
+    `Cannot reach the MedIntel API at ${API_BASE}. Ensure Render is Live and CORS_ORIGINS includes this Vercel site.`
   );
 }
 
