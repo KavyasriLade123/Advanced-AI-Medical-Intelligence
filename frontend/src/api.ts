@@ -63,8 +63,13 @@ export async function initApiBase(): Promise<void> {
     const res = await fetch("/config.json", { cache: "no-store" });
     if (!res.ok) return;
     const cfg = (await res.json()) as { apiBaseUrl?: string };
-    const fromFile = (cfg.apiBaseUrl ?? "").trim().replace(/\/$/, "");
-    if (fromFile) API_BASE = fromFile;
+    // If apiBaseUrl is present (even ""), prefer it so Vercel same-origin /api proxy works
+    // even when VITE_API_BASE_URL was set at build time.
+    if (Object.prototype.hasOwnProperty.call(cfg, "apiBaseUrl")) {
+      API_BASE = String(cfg.apiBaseUrl ?? "")
+        .trim()
+        .replace(/\/$/, "");
+    }
   } catch {
     /* keep build-time value */
   }
@@ -75,9 +80,9 @@ export function getApiBase(): string {
 }
 
 export function isApiConfigured(): boolean {
-  // Local Vite uses same-origin proxy; production needs an absolute API origin.
-  if (import.meta.env.DEV) return true;
-  return Boolean(API_BASE);
+  // Local Vite and Vercel both proxy /api (vite.config / vercel.json rewrites).
+  // Optional absolute API_BASE still works if set via env or config.json.
+  return true;
 }
 
 async function readError(res: Response): Promise<string> {
@@ -91,24 +96,16 @@ async function readError(res: Response): Promise<string> {
 }
 
 function apiHint(cause?: string): string {
-  if (!isApiConfigured()) {
-    return (
-      "Backend URL is not configured. On Vercel set VITE_API_BASE_URL to your Render API " +
-      "(e.g. https://medintel-api.onrender.com), or put that URL in frontend/public/config.json as apiBaseUrl, then redeploy."
-    );
-  }
+  const target = API_BASE || "the proxied /api route";
   const extra = cause ? ` (${cause})` : "";
   return (
-    `Cannot reach the MedIntel API at ${API_BASE}${extra}. ` +
-    "On Render Free the service sleeps when idle — open the API URL once, wait 30–90 seconds until it is Live, then try Predict again. " +
-    "Also confirm CORS_ORIGINS includes this Vercel site."
+    `Cannot reach the MedIntel API via ${target}${extra}. ` +
+    "Render Free may be waking up — open https://advanced-ai-medical-intelligence-4og2.onrender.com/api/health, " +
+    "wait until JSON appears, then click Predict again (can take 30–90 seconds)."
   );
 }
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  if (!isApiConfigured()) {
-    throw new Error(apiHint());
-  }
   const url = `${API_BASE}${path}`;
   let lastErr: unknown;
   // Render Free cold-starts often fail the first 1–2 browser requests.

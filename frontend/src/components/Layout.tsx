@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { fetchHealth, getApiBase, isApiConfigured, type Health } from "../api";
+import { fetchHealth, getApiBase, type Health } from "../api";
 
 export default function Layout() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -45,20 +45,14 @@ export default function Layout() {
 
         <div className="status-pill">
           <span className={`status-dot ${online ? "" : "offline"}`} />
-          {online
-            ? `API online · ${health?.model_mode}`
-            : !isApiConfigured()
-              ? "API not configured"
-              : "API offline — start Render backend"}
+          {online ? `API online · ${health?.model_mode}` : "API waking / offline"}
         </div>
       </header>
 
       {!online ? (
         <p className="error" style={{ margin: "0 1.25rem 0.75rem" }}>
           {healthError ||
-            (!isApiConfigured()
-              ? "Set VITE_API_BASE_URL on Vercel to your Render URL (e.g. https://….onrender.com), then Redeploy."
-              : `Cannot reach API${apiBase ? ` at ${apiBase}` : ""}. Deploy/start the Render backend and allow this site in CORS_ORIGINS.`)}
+            `API is waking up or offline${apiBase ? ` (${apiBase})` : ""}. Open https://advanced-ai-medical-intelligence-4og2.onrender.com/api/health, wait for JSON, then refresh this page.`}
         </p>
       ) : null}
 
