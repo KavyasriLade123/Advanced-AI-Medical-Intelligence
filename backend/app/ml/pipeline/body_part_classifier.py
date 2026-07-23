@@ -108,20 +108,39 @@ class BodyPartClassifier:
         confidence: float,
         probs: dict[str, float],
     ) -> BodyPartResult:
-        """Prefer top label; if unmapped (e.g. UNSUPPORTED), use best anatomy class in probs."""
+        """Map any detected anatomy label to a body part; never drop a scan that passed Stage 1."""
         direct = self.predict_from_unified_label(predicted, confidence)
         if direct.ok:
             return direct
 
-        ranked = sorted(probs.items(), key=lambda kv: float(kv[1]), reverse=True)
-        for name, prob in ranked:
+        brain_p = float(probs.get("BRAIN_TUMOR", 0.0)) + float(probs.get("BRAIN_NORMAL", 0.0))
+        bone_p = float(probs.get("BONE_FRACTURE", 0.0)) + float(probs.get("LOWER_LIMB", 0.0))
+
+        best: BodyPartResult | None = None
+        for name, prob in sorted(probs.items(), key=lambda kv: float(kv[1]), reverse=True):
             mapped = LABEL_TO_BODY_DISEASE.get(name.upper())
-            if not mapped:
+            if not mapped or float(prob) < 0.08:
                 continue
-            if float(prob) < 0.12:
-                break
             part_id, _disease = mapped
             spec = BODY_PARTS.get(part_id)
-            if spec:
-                return BodyPartResult(True, part_id, spec.display_name, float(prob))
-        return BodyPartResult(False, confidence=confidence, message=MSG_UNKNOWN_PART)
+            if not spec:
+                continue
+            best = BodyPartResult(True, part_id, spec.display_name, float(prob))
+            break
+
+        # Prefer skull when brain anatomy is clearly present (MRI/CT panels)
+        if brain_p >= 0.12 and (best is None or brain_p + 0.03 >= best.confidence):
+            skull = BODY_PARTS.get("skull")
+            if skull:
+                return BodyPartResult(True, "skull", skull.display_name, brain_p)
+
+        if best is not None:
+            return best
+
+        if bone_p >= 0.10:
+            bone = BODY_PARTS["bone"]
+            return BodyPartResult(True, "bone", bone.display_name, bone_p)
+
+        chest = BODY_PARTS["chest"]
+        return BodyPartResult(True, "chest", chest.display_name, max(confidence, 0.1))
+

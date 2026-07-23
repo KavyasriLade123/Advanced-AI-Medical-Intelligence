@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-MSG_NOT_XRAY = "Please upload a valid medical image (X-ray, CT, or MRI)."
-MSG_UNKNOWN_PART = "Unable to identify the scan type. Please upload a clearer medical image."
+MSG_NOT_XRAY = "Please upload medical image."
+MSG_UNKNOWN_PART = "Please upload medical image."
 
 
 @dataclass(frozen=True)

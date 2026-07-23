@@ -60,7 +60,7 @@ export default function AnalyzePage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Please upload a valid medical X-ray image.",
+          : "Please upload medical image.",
       );
     } finally {
       setLoading(false);
@@ -107,9 +107,9 @@ export default function AnalyzePage() {
       <section className="panel">
         <h2>Image analysis</h2>
         <p className="lede">
-          Upload a medical X-ray only. The system validates the image, detects the body part, then
-          predicts disease. Non-X-ray uploads show:{" "}
-          <strong>Please upload a valid medical X-ray image.</strong>
+          Upload a medical image (X-ray, CT, or MRI). When bone structure or a body part is detected,
+          the system returns the prediction. Text-only or non-medical photos show:{" "}
+          <strong>Please upload medical image.</strong>
         </p>
 
         <div
@@ -127,7 +127,7 @@ export default function AnalyzePage() {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
           <div>
-            <strong>Drop a medical X-ray here</strong>
+            <strong>Drop a medical image here</strong>
             <span>or click to browse from your device</span>
             {file ? <div className="preview-name">{file.name}</div> : null}
           </div>

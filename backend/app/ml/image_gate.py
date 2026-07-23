@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-REJECT_MESSAGE = "Please upload a valid medical image (X-ray, CT, or MRI)."
+REJECT_MESSAGE = "Please upload medical image."
 
 MEDICAL_LABELS = {
     "ABDOMEN",
@@ -48,12 +48,18 @@ def _gray_from_rgb(arr: np.ndarray) -> np.ndarray:
 def _is_medical_display_lut(arr: np.ndarray) -> bool:
     """
     True for grayscale films and common PACS color LUTs (blue/cyan MRI/CT panels).
-    False for natural color photos / emoji-heavy social screenshots.
+    False for natural color photos / emoji-heavy social screenshots / black text canvases.
     """
+    gray = _gray_from_rgb(arr)
+    mid_frac = float(((gray >= 35) & (gray <= 220)).mean())
+    # Text on black / empty canvas has almost no tissue mid-tones
+    if mid_frac < 0.12:
+        return False
+
     r, g, b = arr[:, :, 0].ravel(), arr[:, :, 1].ravel(), arr[:, :, 2].ravel()
     chroma = np.maximum(np.maximum(np.abs(r - g), np.abs(r - b)), np.abs(g - b))
     mean_chroma = float(chroma.mean())
-    # Channel correlation: clinical LUTs keep anatomy structure aligned across channels
+
     def _corr(a: np.ndarray, b: np.ndarray) -> float:
         if float(a.std()) < 1e-3 or float(b.std()) < 1e-3:
             return 1.0
