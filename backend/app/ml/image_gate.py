@@ -1,4 +1,4 @@
-"""Accept trained medical classes; reject text/non-medical with a clear message."""
+"""Accept trained X-ray/medical classes; reject text & non-medical uploads."""
 
 from __future__ import annotations
 
@@ -28,17 +28,7 @@ def _gray_array(image: Image.Image, size: int = 192) -> np.ndarray:
     return 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
 
 
-def _row_transition_score(gray: np.ndarray) -> float:
-    scores: list[float] = []
-    for row in gray[::2]:
-        thr = float(np.median(row))
-        binary = row > thr
-        scores.append(float(np.sum(binary[1:] != binary[:-1])))
-    return float(np.mean(scores)) if scores else 0.0
-
-
 def _highpass_energy(gray: np.ndarray) -> float:
-    """Fine glyph/detail energy — text screenshots score much higher than X-rays."""
     core = gray[1:-1, 1:-1]
     blur = (
         gray[:-2, :-2]
@@ -56,25 +46,22 @@ def _highpass_energy(gray: np.ndarray) -> float:
 
 def looks_like_photo_or_text(image: Image.Image) -> bool:
     """
-    Text/document detector only.
-    Real X-rays are smooth (low high-pass energy) even with dark backgrounds.
+    Reject text documents / UI screenshots.
+    Real chest X-rays are smoother (lower high-pass energy) even when dark.
     """
     gray = _gray_array(image)
     bright = float((gray > 220).mean())
-    dark = float((gray < 50).mean())
-    transitions = _row_transition_score(gray)
+    dark = float((gray < 45).mean())
     hp = _highpass_energy(gray)
 
-    # Light documents / notes
-    if bright >= 0.35 and hp >= 5.0:
+    # White/light page with text (documents, notes, screenshots of articles)
+    if bright >= 0.40 and hp >= 4.5:
         return True
-    # Dark UI / text screenshots (X-rays are dark but smooth → low hp)
-    if dark >= 0.70 and hp >= 3.0 and transitions >= 3.0:
+    # Dark-theme text UI (not X-ray — X-rays ~hp 2.5 on samples)
+    if dark >= 0.75 and hp >= 3.1:
         return True
-    # Strong fine-detail text
-    if hp >= 7.0:
-        return True
-    if hp >= 4.0 and transitions >= 4.0:
+    # Extreme glyph detail
+    if hp >= 8.0:
         return True
     return False
 
@@ -87,16 +74,17 @@ def is_medical_prediction(
     image: Image.Image | None = None,
 ) -> bool:
     """
-    If model predicts a trained medical class with enough confidence → accept.
-    Otherwise → reject (Please upload medical image).
+    Give trained output when the model predicts a medical class confidently.
+    Otherwise show: Please upload medical image.
     """
     name = label.upper().strip()
     if name == "UNSUPPORTED" or name not in MEDICAL_LABELS:
         return False
     if confidence < min_confidence:
         return False
-    if float(probs.get("UNSUPPORTED", 0.0)) >= 0.40:
+    if float(probs.get("UNSUPPORTED", 0.0)) >= 0.45:
         return False
+    # Block obvious text documents even if the model is confused
     if image is not None and looks_like_photo_or_text(image):
         return False
     return True
