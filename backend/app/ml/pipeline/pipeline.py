@@ -62,11 +62,11 @@ class MedicalXrayPipeline:
                 source_label=predicted,
             )
 
-        # Stage 2 — body part
+        # Stage 2 — body part (use best anatomy class if top label is UNSUPPORTED/skin/etc.)
         if self.body_parts.model is not None:
             part = self.body_parts.predict_from_tensor(tensor)
         else:
-            part = self.body_parts.predict_from_unified_label(predicted, confidence)
+            part = self.body_parts.predict_from_unified_probs(predicted, confidence, probs)
         if not part.ok:
             return PipelineResult(
                 ok=False,

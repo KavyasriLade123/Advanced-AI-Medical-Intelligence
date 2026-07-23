@@ -90,17 +90,28 @@ class DiseasePredictor:
                 probabilities=prob_map,
             )
 
+        source = unified_label
+        conf = unified_confidence
         mapped = LABEL_TO_BODY_DISEASE.get(unified_label.upper())
         if mapped and mapped[0] == body_part_id:
             disease = mapped[1]
         else:
-            # Use top disease name for this part as a soft fallback
-            spec = BODY_PARTS.get(body_part_id)
-            disease = spec.diseases[0].name if spec and spec.diseases else unified_label
+            # Top label may be UNSUPPORTED — pick best label that maps to this body part
+            disease = None
+            for name, prob in sorted(unified_probs.items(), key=lambda kv: float(kv[1]), reverse=True):
+                m = LABEL_TO_BODY_DISEASE.get(name.upper())
+                if m and m[0] == body_part_id and float(prob) >= 0.12:
+                    disease = m[1]
+                    source = name
+                    conf = float(prob)
+                    break
+            if disease is None:
+                spec = BODY_PARTS.get(body_part_id)
+                disease = spec.diseases[0].name if spec and spec.diseases else unified_label
         return DiseaseResult(
             disease=disease,
-            confidence=unified_confidence,
+            confidence=conf,
             recommendation=recommendation_for(body_part_id, disease),
-            source_label=unified_label,
+            source_label=source,
             probabilities=unified_probs,
         )

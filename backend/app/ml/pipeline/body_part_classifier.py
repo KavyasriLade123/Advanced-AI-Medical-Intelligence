@@ -101,3 +101,27 @@ class BodyPartClassifier:
         if not spec:
             return BodyPartResult(False, confidence=confidence, message=MSG_UNKNOWN_PART)
         return BodyPartResult(True, part_id, spec.display_name, confidence)
+
+    def predict_from_unified_probs(
+        self,
+        predicted: str,
+        confidence: float,
+        probs: dict[str, float],
+    ) -> BodyPartResult:
+        """Prefer top label; if unmapped (e.g. UNSUPPORTED), use best anatomy class in probs."""
+        direct = self.predict_from_unified_label(predicted, confidence)
+        if direct.ok:
+            return direct
+
+        ranked = sorted(probs.items(), key=lambda kv: float(kv[1]), reverse=True)
+        for name, prob in ranked:
+            mapped = LABEL_TO_BODY_DISEASE.get(name.upper())
+            if not mapped:
+                continue
+            if float(prob) < 0.12:
+                break
+            part_id, _disease = mapped
+            spec = BODY_PARTS.get(part_id)
+            if spec:
+                return BodyPartResult(True, part_id, spec.display_name, float(prob))
+        return BodyPartResult(False, confidence=confidence, message=MSG_UNKNOWN_PART)
