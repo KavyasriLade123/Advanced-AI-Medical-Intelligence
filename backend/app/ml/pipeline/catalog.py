@@ -1,7 +1,8 @@
-"""Body-part and disease configuration for the multi-stage X-ray pipeline.
+"""Expandable catalog: body parts, diseases, modality labels, pipeline messages.
 
-Add new body parts / diseases here without changing pipeline code.
-Optional per-part weights: backend/models/disease/{body_part}.pth
+Add new parts/diseases here without changing pipeline orchestration code.
+Optional weights: backend/models/body_part_resnet18.pth
+                 backend/models/disease/{body_part_id}.pth
 """
 
 from __future__ import annotations
@@ -9,8 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-MSG_NOT_XRAY = "Please upload a medical image."
-MSG_UNKNOWN_PART = "Please upload a medical image."
+MSG_NOT_MEDICAL = "Please upload a valid medical image (X-ray, CT Scan, or MRI)."
+# Back-compat aliases used across the codebase
+MSG_NOT_XRAY = MSG_NOT_MEDICAL
+MSG_UNKNOWN_PART = "Unable to identify the body part. Please upload a clearer medical image."
 
 
 @dataclass(frozen=True)
@@ -23,235 +26,395 @@ class DiseaseSpec:
 class BodyPartSpec:
     id: str
     display_name: str
+    modality_default: str  # "X-ray" | "CT" | "MRI"
     diseases: tuple[DiseaseSpec, ...]
-    # Existing unified-model labels that map into this body part
     source_labels: tuple[str, ...] = ()
-    weights_file: str | None = None  # optional dedicated disease model
+    weights_file: str | None = None
 
 
-# Canonical supported body parts (expandable).
+def _d(name: str, rec: str) -> DiseaseSpec:
+    return DiseaseSpec(name, rec)
+
+
+_ORTHO = "Please consult an orthopedic specialist."
+_PULM = "Please consult a pulmonologist."
+_NEURO = "Please consult a neurologist or neurosurgeon."
+_SPINE = "Please consult an orthopedic spine specialist."
+_RADIO = "Please consult a radiologist for further evaluation."
+
+
 BODY_PARTS: dict[str, BodyPartSpec] = {
-    "chest": BodyPartSpec(
-        id="chest",
-        display_name="Chest",
-        source_labels=("NORMAL", "PNEUMONIA", "BREAST_NORMAL", "BREAST_MALIGNANT"),
+    "brain": BodyPartSpec(
+        id="brain",
+        display_name="Brain",
+        modality_default="MRI",
+        source_labels=("BRAIN_NORMAL", "BRAIN_TUMOR"),
         diseases=(
-            DiseaseSpec("Normal", "No acute chest finding suggested. Routine follow-up as advised by your clinician."),
-            DiseaseSpec("Pneumonia", "Please consult a pulmonologist."),
-            DiseaseSpec("Tuberculosis", "Please consult a pulmonologist for further evaluation."),
-            DiseaseSpec("COVID", "Please consult a pulmonologist / infectious disease specialist."),
-            DiseaseSpec("Breast abnormality", "Please consult a radiologist or breast specialist."),
+            _d("Normal", "No significant intracranial abnormality suggested."),
+            _d("Brain tumor / mass", _NEURO),
+            _d("Hemorrhage", "Please seek urgent neurological evaluation."),
+            _d("Stroke", "Please seek urgent stroke / neurological evaluation."),
         ),
-        weights_file="disease/chest.pth",
-    ),
-    "lung": BodyPartSpec(
-        id="lung",
-        display_name="Lung",
-        source_labels=(),
-        diseases=(
-            DiseaseSpec("Normal", "No acute lung finding suggested. Follow clinician advice."),
-            DiseaseSpec("Pneumonia", "Please consult a pulmonologist."),
-            DiseaseSpec("COVID", "Please consult a pulmonologist / infectious disease specialist."),
-        ),
-        weights_file="disease/lung.pth",
+        weights_file="disease/brain.pth",
     ),
     "skull": BodyPartSpec(
         id="skull",
         display_name="Skull",
-        source_labels=("BRAIN_NORMAL", "BRAIN_TUMOR"),
+        modality_default="X-ray",
+        source_labels=(),
         diseases=(
-            DiseaseSpec("Normal", "No acute intracranial finding suggested. Follow neurologist advice if symptomatic."),
-            DiseaseSpec("Brain tumor / mass", "Please consult a neurologist or neurosurgeon."),
+            _d("Normal", "No significant skull abnormality suggested."),
+            _d("Fracture", _ORTHO),
+            _d("Brain tumor / mass", _NEURO),
         ),
         weights_file="disease/skull.pth",
     ),
-    "hand": BodyPartSpec(
-        id="hand",
-        display_name="Hand",
-        source_labels=(),
+    "chest": BodyPartSpec(
+        id="chest",
+        display_name="Chest",
+        modality_default="X-ray",
+        source_labels=("NORMAL", "PNEUMONIA", "BREAST_NORMAL", "BREAST_MALIGNANT"),
         diseases=(
-            DiseaseSpec("Normal", "No acute hand finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
-            DiseaseSpec("Arthritis", "Please consult an orthopedist or rheumatologist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Pneumonia", _PULM),
+            _d("Tuberculosis", _PULM),
+            _d("COVID-19", "Please consult a pulmonologist / infectious disease specialist."),
+            _d("Lung opacity", _PULM),
+            _d("Pleural effusion", _PULM),
+            _d("Pneumothorax", "Please seek urgent chest evaluation."),
+            _d("Breast abnormality", "Please consult a radiologist or breast specialist."),
         ),
-        weights_file="disease/hand.pth",
+        weights_file="disease/chest.pth",
     ),
-    "wrist": BodyPartSpec(
-        id="wrist",
-        display_name="Wrist",
+    "lungs": BodyPartSpec(
+        id="lungs",
+        display_name="Lungs",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute wrist finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Pneumonia", _PULM),
+            _d("Tuberculosis", _PULM),
+            _d("COVID-19", "Please consult a pulmonologist / infectious disease specialist."),
+            _d("Lung opacity", _PULM),
         ),
-        weights_file="disease/wrist.pth",
+        weights_file="disease/lungs.pth",
     ),
-    "elbow": BodyPartSpec(
-        id="elbow",
-        display_name="Elbow",
+    "heart": BodyPartSpec(
+        id="heart",
+        display_name="Heart",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute elbow finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
+            _d("Normal", "No significant cardiac silhouette abnormality suggested."),
+            _d("Cardiomegaly", "Please consult a cardiologist."),
         ),
-        weights_file="disease/elbow.pth",
-    ),
-    "shoulder": BodyPartSpec(
-        id="shoulder",
-        display_name="Shoulder",
-        diseases=(
-            DiseaseSpec("Normal", "No acute shoulder finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
-        ),
-        weights_file="disease/shoulder.pth",
-    ),
-    "knee": BodyPartSpec(
-        id="knee",
-        display_name="Knee",
-        diseases=(
-            DiseaseSpec("Normal", "No acute knee finding suggested."),
-            DiseaseSpec("Osteoarthritis", "Please consult an orthopedic specialist."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
-        ),
-        weights_file="disease/knee.pth",
-    ),
-    "hip": BodyPartSpec(
-        id="hip",
-        display_name="Hip",
-        diseases=(
-            DiseaseSpec("Normal", "No acute hip finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
-        ),
-        weights_file="disease/hip.pth",
-    ),
-    "pelvis": BodyPartSpec(
-        id="pelvis",
-        display_name="Pelvis",
-        diseases=(
-            DiseaseSpec("Normal", "No acute pelvic finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
-        ),
-        weights_file="disease/pelvis.pth",
-    ),
-    "spine": BodyPartSpec(
-        id="spine",
-        display_name="Spine",
-        diseases=(
-            DiseaseSpec("Normal", "No acute spinal finding suggested."),
-            DiseaseSpec("Scoliosis", "Please consult an orthopedic spine specialist."),
-            DiseaseSpec("Disc degeneration", "Please consult an orthopedic spine specialist."),
-        ),
-        weights_file="disease/spine.pth",
+        weights_file="disease/heart.pth",
     ),
     "cervical_spine": BodyPartSpec(
         id="cervical_spine",
         display_name="Cervical Spine",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute cervical finding suggested."),
-            DiseaseSpec("Degenerative change", "Please consult a spine specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Disc degeneration", _SPINE),
+            _d("Compression fracture", _SPINE),
+            _d("Scoliosis", _SPINE),
         ),
         weights_file="disease/cervical_spine.pth",
+    ),
+    "thoracic_spine": BodyPartSpec(
+        id="thoracic_spine",
+        display_name="Thoracic Spine",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Disc degeneration", _SPINE),
+            _d("Compression fracture", _SPINE),
+            _d("Scoliosis", _SPINE),
+        ),
+        weights_file="disease/thoracic_spine.pth",
     ),
     "lumbar_spine": BodyPartSpec(
         id="lumbar_spine",
         display_name="Lumbar Spine",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute lumbar finding suggested."),
-            DiseaseSpec("Degenerative change", "Please consult a spine specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Disc degeneration", _SPINE),
+            _d("Compression fracture", _SPINE),
+            _d("Scoliosis", _SPINE),
         ),
         weights_file="disease/lumbar_spine.pth",
     ),
-    "foot": BodyPartSpec(
-        id="foot",
-        display_name="Foot",
+    "spine": BodyPartSpec(
+        id="spine",
+        display_name="Spine",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute foot finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Scoliosis", _SPINE),
+            _d("Disc degeneration", _SPINE),
+            _d("Compression fracture", _SPINE),
         ),
-        weights_file="disease/foot.pth",
+        weights_file="disease/spine.pth",
     ),
-    "ankle": BodyPartSpec(
-        id="ankle",
-        display_name="Ankle",
+    "shoulder": BodyPartSpec(
+        id="shoulder",
+        display_name="Shoulder",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute ankle finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Dislocation", _ORTHO),
         ),
-        weights_file="disease/ankle.pth",
+        weights_file="disease/shoulder.pth",
     ),
-    "leg": BodyPartSpec(
-        id="leg",
-        display_name="Leg",
-        source_labels=("LOWER_LIMB",),
+    "clavicle": BodyPartSpec(
+        id="clavicle",
+        display_name="Clavicle",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute lower-limb finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
         ),
-        weights_file="disease/leg.pth",
-    ),
-    "femur": BodyPartSpec(
-        id="femur",
-        display_name="Femur",
-        diseases=(
-            DiseaseSpec("Normal", "No acute femur finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
-        ),
-        weights_file="disease/femur.pth",
+        weights_file="disease/clavicle.pth",
     ),
     "arm": BodyPartSpec(
         id="arm",
         display_name="Arm",
+        modality_default="X-ray",
         diseases=(
-            DiseaseSpec("Normal", "No acute arm finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Hairline fracture", _ORTHO),
         ),
         weights_file="disease/arm.pth",
+    ),
+    "elbow": BodyPartSpec(
+        id="elbow",
+        display_name="Elbow",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Dislocation", _ORTHO),
+        ),
+        weights_file="disease/elbow.pth",
+    ),
+    "forearm": BodyPartSpec(
+        id="forearm",
+        display_name="Forearm",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/forearm.pth",
+    ),
+    "wrist": BodyPartSpec(
+        id="wrist",
+        display_name="Wrist",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Hairline fracture", _ORTHO),
+        ),
+        weights_file="disease/wrist.pth",
+    ),
+    "hand": BodyPartSpec(
+        id="hand",
+        display_name="Hand",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Arthritis", "Please consult an orthopedist or rheumatologist."),
+        ),
+        weights_file="disease/hand.pth",
+    ),
+    "fingers": BodyPartSpec(
+        id="fingers",
+        display_name="Fingers",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/fingers.pth",
+    ),
+    "pelvis": BodyPartSpec(
+        id="pelvis",
+        display_name="Pelvis",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/pelvis.pth",
+    ),
+    "hip": BodyPartSpec(
+        id="hip",
+        display_name="Hip",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Arthritis", _ORTHO),
+        ),
+        weights_file="disease/hip.pth",
+    ),
+    "femur": BodyPartSpec(
+        id="femur",
+        display_name="Femur",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/femur.pth",
+    ),
+    "knee": BodyPartSpec(
+        id="knee",
+        display_name="Knee",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Osteoarthritis", _ORTHO),
+            _d("Fracture", _ORTHO),
+            _d("Joint narrowing", _ORTHO),
+        ),
+        weights_file="disease/knee.pth",
+    ),
+    "leg": BodyPartSpec(
+        id="leg",
+        display_name="Leg",
+        modality_default="X-ray",
+        source_labels=("LOWER_LIMB",),
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/leg.pth",
+    ),
+    "tibia": BodyPartSpec(
+        id="tibia",
+        display_name="Tibia",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/tibia.pth",
+    ),
+    "fibula": BodyPartSpec(
+        id="fibula",
+        display_name="Fibula",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/fibula.pth",
+    ),
+    "ankle": BodyPartSpec(
+        id="ankle",
+        display_name="Ankle",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/ankle.pth",
+    ),
+    "foot": BodyPartSpec(
+        id="foot",
+        display_name="Foot",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Arthritis", _ORTHO),
+        ),
+        weights_file="disease/foot.pth",
+    ),
+    "toes": BodyPartSpec(
+        id="toes",
+        display_name="Toes",
+        modality_default="X-ray",
+        diseases=(
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+        ),
+        weights_file="disease/toes.pth",
     ),
     "abdomen": BodyPartSpec(
         id="abdomen",
         display_name="Abdomen",
+        modality_default="X-ray",
         source_labels=("ABDOMEN",),
         diseases=(
-            DiseaseSpec("Normal", "No acute abdominal radiographic finding suggested."),
-            DiseaseSpec("Abnormality", "Please consult a radiologist or gastroenterologist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Abnormality", "Please consult a radiologist or gastroenterologist."),
         ),
         weights_file="disease/abdomen.pth",
-    ),
-    "dental": BodyPartSpec(
-        id="dental",
-        display_name="Dental",
-        diseases=(
-            DiseaseSpec("Normal", "No acute dental radiographic finding suggested."),
-            DiseaseSpec("Dental pathology", "Please consult a dentist / oral radiologist."),
-        ),
-        weights_file="disease/dental.pth",
     ),
     "bone": BodyPartSpec(
         id="bone",
         display_name="Bone",
+        modality_default="X-ray",
         source_labels=("BONE_FRACTURE",),
         diseases=(
-            DiseaseSpec("Normal", "No acute osseous finding suggested."),
-            DiseaseSpec("Fracture", "Please consult an orthopedic specialist."),
+            _d("Normal", "No significant abnormality detected."),
+            _d("Fracture", _ORTHO),
+            _d("Hairline fracture", _ORTHO),
+            _d("Dislocation", _ORTHO),
+            _d("Osteoarthritis", _ORTHO),
+            _d("Osteoporosis", _ORTHO),
+            _d("Bone lesion", _RADIO),
         ),
         weights_file="disease/bone.pth",
     ),
 }
 
 
-# Map unified classifier label → (body_part_id, disease_name)
+# Unified MedIntel classifier label → (body_part_id, disease_name)
 LABEL_TO_BODY_DISEASE: dict[str, tuple[str, str]] = {
     "NORMAL": ("chest", "Normal"),
     "PNEUMONIA": ("chest", "Pneumonia"),
     "BREAST_NORMAL": ("chest", "Normal"),
     "BREAST_MALIGNANT": ("chest", "Breast abnormality"),
-    "BRAIN_NORMAL": ("skull", "Normal"),
-    "BRAIN_TUMOR": ("skull", "Brain tumor / mass"),
+    "BRAIN_NORMAL": ("brain", "Normal"),
+    "BRAIN_TUMOR": ("brain", "Brain tumor / mass"),
     "BONE_FRACTURE": ("bone", "Fracture"),
     "LOWER_LIMB": ("leg", "Fracture"),
     "ABDOMEN": ("abdomen", "Abnormality"),
 }
 
-# Non-X-ray classes from the unified model (reject at Stage 1)
 NON_XRAY_LABELS = {"UNSUPPORTED", "SKIN", "EYE_RETINA"}
+
+# Classes used by optional dedicated body-part ResNet
+BODY_PART_MODEL_CLASSES = [
+    "chest",
+    "brain",
+    "skull",
+    "hand",
+    "wrist",
+    "elbow",
+    "shoulder",
+    "knee",
+    "hip",
+    "pelvis",
+    "spine",
+    "cervical_spine",
+    "lumbar_spine",
+    "foot",
+    "ankle",
+    "leg",
+    "femur",
+    "arm",
+    "abdomen",
+    "bone",
+]
 
 
 def recommendation_for(body_part_id: str, disease: str) -> str:
@@ -261,9 +424,18 @@ def recommendation_for(body_part_id: str, disease: str) -> str:
     for d in part.diseases:
         if d.name.lower() == disease.lower():
             return d.recommendation
-    return f"Please consult a specialist regarding this {part.display_name.lower()} X-ray finding."
+    return f"Please consult a specialist regarding this {part.display_name.lower()} finding."
 
 
 def body_part_display(body_part_id: str) -> str:
     part = BODY_PARTS.get(body_part_id)
     return part.display_name if part else body_part_id
+
+
+def format_body_part_label(body_part_id: str, modality: str | None = None) -> str:
+    """e.g. 'Chest X-ray' or 'Brain MRI'."""
+    part = BODY_PARTS.get(body_part_id)
+    if not part:
+        return body_part_id
+    mod = modality or part.modality_default
+    return f"{part.display_name} {mod}"

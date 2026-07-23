@@ -1,4 +1,4 @@
-"""End-to-end medical X-ray analysis pipeline (validate → body part → disease)."""
+"""End-to-end pipeline: validate medical image → body part → disease (existing models)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.ml.classifier import get_classifier
 from app.ml.pipeline.body_part_classifier import BodyPartClassifier
 from app.ml.pipeline.catalog import MSG_NOT_XRAY, MSG_UNKNOWN_PART
-from app.ml.pipeline.disease_models import DiseasePredictor
+from app.ml.pipeline.disease_models import MSG_DISEASE_UNAVAILABLE, DiseasePredictor
 from app.ml.pipeline.xray_validator import validate_medical_xray
 from app.ml.preprocess import preprocess_image
 
@@ -36,7 +36,7 @@ class PipelineResult:
 
 
 class MedicalXrayPipeline:
-    """Production orchestration for the three-stage X-ray workflow."""
+    """Validate → body part → disease using existing MedIntel models where available."""
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -48,7 +48,7 @@ class MedicalXrayPipeline:
         tensor = preprocess_image(image)
         predicted, confidence, probs = self.unified.predict(tensor)
 
-        # Stage 1 — medical X-ray validation
+        # Stage 1 — medical image only (X-ray / CT / MRI)
         min_xray = float(getattr(self.settings, "xray_confidence_threshold", 0.35))
         stage1 = validate_medical_xray(image, probs, min_xray_confidence=min_xray)
         if not stage1.is_xray:
@@ -62,11 +62,13 @@ class MedicalXrayPipeline:
                 source_label=predicted,
             )
 
-        # Stage 2 — body part (use best anatomy class if top label is UNSUPPORTED/skin/etc.)
+        # Stage 2 — body part
         if self.body_parts.model is not None:
-            part = self.body_parts.predict_from_tensor(tensor)
+            part = self.body_parts.predict_from_tensor(tensor, image)
         else:
-            part = self.body_parts.predict_from_unified_probs(predicted, confidence, probs)
+            part = self.body_parts.predict_from_unified_probs(
+                predicted, confidence, probs, image
+            )
         if not part.ok:
             return PipelineResult(
                 ok=False,
@@ -78,7 +80,7 @@ class MedicalXrayPipeline:
                 source_label=predicted,
             )
 
-        # Stage 3 — disease for that body part
+        # Stage 3 — disease (existing unified / dedicated models only)
         disease = self.diseases.predict(
             part.body_part_id,
             tensor,
@@ -86,8 +88,20 @@ class MedicalXrayPipeline:
             unified_confidence=confidence,
             unified_probs=probs,
         )
+        if not disease.available:
+            return PipelineResult(
+                ok=False,
+                is_xray=True,
+                body_part=part.display_name,
+                body_part_id=part.body_part_id,
+                body_part_confidence=part.confidence,
+                xray_confidence=stage1.confidence,
+                error=disease.message or MSG_DISEASE_UNAVAILABLE,
+                model_mode=self.unified.model_mode,
+                probabilities=probs,
+                source_label=predicted,
+            )
 
-        # Stage 1 already filtered people/UI; do not overturn bone/anatomy accepts
         logger.info(
             "Pipeline OK part=%s disease=%s conf=%.3f",
             part.display_name,

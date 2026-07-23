@@ -1,43 +1,29 @@
-"""Stage 2 — identify X-ray body part."""
+"""Stage 2 — body-part classification for validated medical images."""
 
 from __future__ import annotations
 
 import logging
 
+import numpy as np
 import torch
 import torch.nn as nn
+from PIL import Image
 from torchvision import models
 
 from app.config import MODEL_DIR
-from app.ml.pipeline.catalog import BODY_PARTS, LABEL_TO_BODY_DISEASE, MSG_UNKNOWN_PART
+from app.ml.pipeline.catalog import (
+    BODY_PARTS,
+    BODY_PART_MODEL_CLASSES,
+    LABEL_TO_BODY_DISEASE,
+    MSG_UNKNOWN_PART,
+    format_body_part_label,
+)
 
 logger = logging.getLogger(__name__)
 
-BODY_PART_MODEL_CLASSES = [
-    "chest",
-    "hand",
-    "wrist",
-    "elbow",
-    "shoulder",
-    "knee",
-    "hip",
-    "pelvis",
-    "spine",
-    "cervical_spine",
-    "lumbar_spine",
-    "skull",
-    "foot",
-    "ankle",
-    "leg",
-    "femur",
-    "arm",
-    "abdomen",
-    "dental",
-]
-
 
 class BodyPartResult:
-    __slots__ = ("body_part_id", "display_name", "confidence", "message", "ok")
+    __slots__ = ("body_part_id", "display_name", "confidence", "message", "ok", "modality")
 
     def __init__(
         self,
@@ -46,18 +32,47 @@ class BodyPartResult:
         display_name: str = "",
         confidence: float = 0.0,
         message: str = "",
+        modality: str = "X-ray",
     ) -> None:
         self.ok = ok
         self.body_part_id = body_part_id
         self.display_name = display_name
         self.confidence = confidence
         self.message = message
+        self.modality = modality
+
+
+def infer_modality(image: Image.Image) -> str:
+    """Heuristic modality tag for display (X-ray vs CT/MRI panel)."""
+    arr = np.asarray(image.convert("RGB").resize((128, 128)), dtype=np.float32)
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    chroma = float((np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3.0)
+    if float(b.mean()) >= float(r.mean()) + 15.0 and chroma >= 12.0:
+        return "MRI"
+    if chroma < 10.0:
+        return "X-ray"
+    return "X-ray"
+
+
+def _refine_bone_part(image: Image.Image, fallback_id: str = "bone") -> str:
+    """Use geometry cues to refine generic bone → extremity subclass."""
+    w, h = image.size
+    aspect = h / max(w, 1)
+    # Tall long-bone films
+    if aspect >= 1.45:
+        return "leg" if aspect < 1.9 else "femur"
+    if aspect <= 0.75:
+        return "hand"
+    # Square-ish joints
+    if 0.85 <= aspect <= 1.15:
+        return "knee"
+    return fallback_id
 
 
 class BodyPartClassifier:
     """
     Prefers dedicated checkpoint: backend/models/body_part_resnet18.pth
-    Otherwise maps unified classifier label → body part.
+    Otherwise maps unified classifier + geometry heuristics.
     """
 
     def __init__(self) -> None:
@@ -78,8 +93,15 @@ class BodyPartClassifier:
         model.fc = nn.Linear(model.fc.in_features, len(self.labels))
         return model
 
+    def _pack(self, part_id: str, confidence: float, modality: str) -> BodyPartResult:
+        spec = BODY_PARTS.get(part_id)
+        if not spec:
+            return BodyPartResult(False, confidence=confidence, message=MSG_UNKNOWN_PART)
+        label = format_body_part_label(part_id, modality)
+        return BodyPartResult(True, part_id, label, confidence, modality=modality)
+
     @torch.inference_mode()
-    def predict_from_tensor(self, tensor: torch.Tensor) -> BodyPartResult:
+    def predict_from_tensor(self, tensor: torch.Tensor, image: Image.Image | None = None) -> BodyPartResult:
         if self.model is None:
             return BodyPartResult(False, message=MSG_UNKNOWN_PART)
         logits = self.model(tensor.to(self.device))
@@ -87,60 +109,65 @@ class BodyPartClassifier:
         idx = int(probs.argmax().item())
         conf = float(probs[idx].item())
         part_id = self.labels[idx]
-        spec = BODY_PARTS.get(part_id)
-        if not spec or conf < 0.35:
+        modality = infer_modality(image) if image is not None else "X-ray"
+        if part_id == "bone" and image is not None:
+            part_id = _refine_bone_part(image, "bone")
+        if conf < 0.30:
             return BodyPartResult(False, confidence=conf, message=MSG_UNKNOWN_PART)
-        return BodyPartResult(True, part_id, spec.display_name, conf)
-
-    def predict_from_unified_label(self, label: str, confidence: float) -> BodyPartResult:
-        mapped = LABEL_TO_BODY_DISEASE.get(label.upper())
-        if not mapped:
-            return BodyPartResult(False, confidence=confidence, message=MSG_UNKNOWN_PART)
-        part_id, _disease = mapped
-        spec = BODY_PARTS.get(part_id)
-        if not spec:
-            return BodyPartResult(False, confidence=confidence, message=MSG_UNKNOWN_PART)
-        return BodyPartResult(True, part_id, spec.display_name, confidence)
+        # Brain MRI panels
+        if image is not None and modality == "MRI" and part_id in {"skull", "bone", "chest"}:
+            if conf < 0.55:
+                return self._pack("brain", max(conf, 0.45), "MRI")
+        return self._pack(part_id, conf, modality if part_id != "brain" else "MRI")
 
     def predict_from_unified_probs(
         self,
         predicted: str,
         confidence: float,
         probs: dict[str, float],
+        image: Image.Image | None = None,
     ) -> BodyPartResult:
-        """Map any detected anatomy label to a body part; never drop a scan that passed Stage 1."""
-        direct = self.predict_from_unified_label(predicted, confidence)
-        if direct.ok:
-            return direct
+        modality = infer_modality(image) if image is not None else "X-ray"
+        mapped = LABEL_TO_BODY_DISEASE.get(predicted.upper())
+        if mapped:
+            part_id, _ = mapped
+            if part_id == "bone" and image is not None:
+                part_id = _refine_bone_part(image, "bone")
+            if part_id == "skull" and modality == "MRI":
+                part_id = "brain"
+            if part_id == "brain":
+                modality = "MRI"
+            return self._pack(part_id, confidence, modality)
 
         brain_p = float(probs.get("BRAIN_TUMOR", 0.0)) + float(probs.get("BRAIN_NORMAL", 0.0))
+        chest_p = (
+            float(probs.get("PNEUMONIA", 0.0))
+            + float(probs.get("NORMAL", 0.0))
+            + float(probs.get("BREAST_NORMAL", 0.0))
+            + float(probs.get("BREAST_MALIGNANT", 0.0))
+        )
         bone_p = float(probs.get("BONE_FRACTURE", 0.0)) + float(probs.get("LOWER_LIMB", 0.0))
+        abd_p = float(probs.get("ABDOMEN", 0.0))
 
-        best: BodyPartResult | None = None
-        for name, prob in sorted(probs.items(), key=lambda kv: float(kv[1]), reverse=True):
-            mapped = LABEL_TO_BODY_DISEASE.get(name.upper())
-            if not mapped or float(prob) < 0.08:
-                continue
-            part_id, _disease = mapped
-            spec = BODY_PARTS.get(part_id)
-            if not spec:
-                continue
-            best = BodyPartResult(True, part_id, spec.display_name, float(prob))
-            break
+        # Strongest anatomy group
+        scores = {
+            "brain": brain_p,
+            "chest": chest_p,
+            "bone": bone_p,
+            "abdomen": abd_p,
+            "leg": float(probs.get("LOWER_LIMB", 0.0)),
+        }
+        best_id = max(scores, key=scores.get)
+        best_score = scores[best_id]
+        if best_score < 0.10:
+            # Still return a part so Stage 3 can run on validated medical images
+            best_id, best_score = "chest", max(confidence, 0.2)
 
-        # Prefer skull when brain anatomy is clearly present (MRI/CT panels)
-        if brain_p >= 0.12 and (best is None or brain_p + 0.03 >= best.confidence):
-            skull = BODY_PARTS.get("skull")
-            if skull:
-                return BodyPartResult(True, "skull", skull.display_name, brain_p)
+        if best_id == "bone" and image is not None:
+            best_id = _refine_bone_part(image, "bone")
+        if best_id == "brain":
+            modality = "MRI"
+        elif modality == "MRI" and best_id in {"skull", "chest"} and brain_p >= 0.15:
+            best_id, modality = "brain", "MRI"
 
-        if best is not None:
-            return best
-
-        if bone_p >= 0.10:
-            bone = BODY_PARTS["bone"]
-            return BodyPartResult(True, "bone", bone.display_name, bone_p)
-
-        chest = BODY_PARTS["chest"]
-        return BodyPartResult(True, "chest", chest.display_name, max(confidence, 0.1))
-
+        return self._pack(best_id, float(best_score), modality)
