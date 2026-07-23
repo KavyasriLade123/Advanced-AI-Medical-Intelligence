@@ -92,14 +92,14 @@ def looks_like_ui_screenshot(image: Image.Image) -> bool:
     gray = _gray_from_rgb(arr)
     flat, busy = _ui_panel_stats(gray)
     dark = float((gray < 50).mean())
+    mid = float(((gray >= 35) & (gray <= 220)).mean())
     # Flat chrome + dark theme (VS Code, dashboards, etc.)
     if flat >= 0.45 and busy <= 0.35:
         return True
     if flat >= 0.40 and dark >= 0.55 and busy <= 0.25:
         return True
-    # Mostly black canvas with sparse bright UI/text
-    mid = float(((gray >= 35) & (gray <= 220)).mean())
-    if dark >= 0.70 and mid < 0.35 and flat >= 0.30:
+    # Mostly black canvas with sparse UI/text (not textured MRI/CT tissue)
+    if dark >= 0.70 and mid < 0.35 and flat >= 0.30 and busy < 0.25:
         return True
     return False
 
