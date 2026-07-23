@@ -28,6 +28,13 @@ def _gray_array(image: Image.Image, size: int = 192) -> np.ndarray:
     return 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
 
 
+def _color_delta(image: Image.Image) -> float:
+    small = image.convert("RGB").resize((128, 128))
+    arr = np.asarray(small, dtype=np.float32)
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    return float((np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3.0)
+
+
 def _highpass_energy(gray: np.ndarray) -> float:
     core = gray[1:-1, 1:-1]
     blur = (
@@ -46,22 +53,21 @@ def _highpass_energy(gray: np.ndarray) -> float:
 
 def looks_like_photo_or_text(image: Image.Image) -> bool:
     """
-    Reject text documents / UI screenshots.
-    Real chest X-rays are smoother (lower high-pass energy) even when dark.
+    Reject clear text documents and colorful photos.
+    Real chest X-rays (open samples) stay accepted: dark, near-grayscale, smoother.
     """
     gray = _gray_array(image)
     bright = float((gray > 220).mean())
-    dark = float((gray < 45).mean())
     hp = _highpass_energy(gray)
+    color = _color_delta(image)
 
-    # White/light page with text (documents, notes, screenshots of articles)
-    if bright >= 0.35 and hp >= 4.0:
+    # Paper / text document (very bright page)
+    if bright >= 0.50 and hp >= 3.0:
         return True
-    # Dark-theme text UI (chest X-rays are smoother: hp ~2.5 on open samples)
-    if dark >= 0.65 and hp >= 3.0:
+    if bright >= 0.70:
         return True
-    # Extreme glyph detail
-    if hp >= 7.5:
+    # Colorful everyday photos (X-rays are near grayscale)
+    if color >= 25.0:
         return True
     return False
 
@@ -74,8 +80,8 @@ def is_medical_prediction(
     image: Image.Image | None = None,
 ) -> bool:
     """
-    Give trained output when the model predicts a medical class confidently.
-    Otherwise show: Please upload medical image.
+    If trained medical/X-ray class with enough confidence → return findings.
+    Else → Please upload medical image.
     """
     name = label.upper().strip()
     if name == "UNSUPPORTED" or name not in MEDICAL_LABELS:
@@ -84,7 +90,6 @@ def is_medical_prediction(
         return False
     if float(probs.get("UNSUPPORTED", 0.0)) >= 0.45:
         return False
-    # Block obvious text documents even if the model is confused
     if image is not None and looks_like_photo_or_text(image):
         return False
     return True
