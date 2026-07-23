@@ -66,7 +66,13 @@ async def predict_image(
         _reject(image_path, REJECT_MESSAGE)
 
     # Only return findings for medical X-ray / imaging classes
-    if not is_medical_prediction(predicted, confidence, probs, settings.min_confidence):
+    if not is_medical_prediction(
+        predicted,
+        confidence,
+        probs,
+        settings.min_confidence,
+        image=image,
+    ):
         _reject(image_path, REJECT_MESSAGE)
 
     heatmap_name: str | None = None
