@@ -38,7 +38,7 @@ class Settings(BaseSettings):
         "BREAST_NORMAL,EYE_RETINA,LOWER_LIMB,NORMAL,PNEUMONIA,SKIN,UNSUPPORTED"
     )
     image_size: int = 224
-    min_confidence: float = 0.55
+    min_confidence: float = 0.45
     supported_hint: str = "Please upload medical image."
 
     @property

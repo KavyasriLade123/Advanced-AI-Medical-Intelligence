@@ -107,8 +107,8 @@ export default function AnalyzePage() {
       <section className="panel">
         <h2>Image analysis</h2>
         <p className="lede">
-          Upload a medical X-ray or clinical image (chest, brain, bone, breast, etc.). Everyday photos
-          or text screenshots are rejected with: <strong>Please upload medical image.</strong>
+          Upload a trained medical image (X-ray / clinical scan). If it matches a trained class you
+          get the finding; photos or text show: <strong>Please upload medical image.</strong>
         </p>
 
         <div
