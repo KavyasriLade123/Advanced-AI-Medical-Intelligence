@@ -87,34 +87,7 @@ class MedicalXrayPipeline:
             unified_probs=probs,
         )
 
-        # Keep hard rejects for people / UI even if disease head is confident
-        # Keep hard rejects for clear people / UI only (not bone films with black borders)
-        from app.ml.image_gate import _tone_stats, looks_like_person_or_color_photo, looks_like_ui_screenshot
-
-        tones = _tone_stats(image)
-        clear_person = looks_like_person_or_color_photo(image) and float(tones.get("corr", 1.0)) < 0.98
-        # Do not re-reject after Stage 1 already accepted a clinical scan
-        if clear_person and float(tones.get("skin", 0.0)) >= 0.05:
-            return PipelineResult(
-                ok=False,
-                is_xray=False,
-                xray_confidence=stage1.confidence,
-                error=MSG_NOT_XRAY,
-                model_mode=self.unified.model_mode,
-                probabilities=probs,
-                source_label=predicted,
-            )
-        if looks_like_ui_screenshot(image) and float(tones.get("color", 0.0)) >= 8.0:
-            return PipelineResult(
-                ok=False,
-                is_xray=False,
-                xray_confidence=stage1.confidence,
-                error=MSG_NOT_XRAY,
-                model_mode=self.unified.model_mode,
-                probabilities=probs,
-                source_label=predicted,
-            )
-
+        # Stage 1 already filtered people/UI; do not overturn bone/anatomy accepts
         logger.info(
             "Pipeline OK part=%s disease=%s conf=%.3f",
             part.display_name,
