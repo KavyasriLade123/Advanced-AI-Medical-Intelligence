@@ -1,0 +1,24 @@
+{
+  "classes": [
+    "chest",
+    "brain",
+    "skull",
+    "hand",
+    "wrist",
+    "elbow",
+    "shoulder",
+    "knee",
+    "hip",
+    "pelvis",
+    "spine",
+    "cervical_spine",
+    "lumbar_spine",
+    "foot",
+    "ankle",
+    "leg",
+    "femur",
+    "arm",
+    "abdomen",
+    "bone"
+  ]
+}

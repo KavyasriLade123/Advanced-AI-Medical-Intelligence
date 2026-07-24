@@ -11,6 +11,8 @@ backend/models/*
 !backend/models/.gitkeep
 !backend/models/chest_xray_resnet18.pth
 !backend/models/xray_gate_resnet18.pth
+!backend/models/body_part_resnet18.pth
+!backend/models/body_part_labels.json
 !backend/models/disease/.gitkeep
 # Keep committed UI build for Render same-origin deploy
 !backend/static/
