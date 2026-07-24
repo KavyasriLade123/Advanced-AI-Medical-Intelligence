@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-REJECT_MESSAGE = "Please upload a valid medical image (X-ray, CT Scan, or MRI)."
+REJECT_MESSAGE = "Please upload a valid medical X-ray image."
 
 MEDICAL_LABELS = {
     "ABDOMEN",
@@ -97,17 +97,27 @@ def looks_like_ui_screenshot(image: Image.Image) -> bool:
     mean_chroma = float(
         (np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3.0
     )
+    corr = (
+        _channel_corr(r.ravel(), g.ravel())
+        + _channel_corr(r.ravel(), b.ravel())
+        + _channel_corr(g.ravel(), b.ravel())
+    ) / 3.0
     # Extremity bone / chest films: large black borders look "flat" but are grayscale clinical
-    if mean_chroma < 8.0 and mid >= 0.18:
+    if mean_chroma < 8.0 and mid >= 0.18 and corr >= 0.95:
         return False
 
-    # Flat chrome + dark theme (VS Code, dashboards, etc.)
-    if flat >= 0.45 and busy <= 0.35:
+    # Flat chrome + dark theme (VS Code, dashboards, browsers, Project Manager, etc.)
+    if flat >= 0.40 and busy <= 0.40:
         return True
-    if flat >= 0.40 and dark >= 0.55 and busy <= 0.25:
+    if flat >= 0.35 and dark >= 0.50 and busy <= 0.30:
         return True
-    # Mostly black canvas with sparse UI/text (not textured MRI/CT tissue)
-    if dark >= 0.70 and mid < 0.35 and flat >= 0.30 and busy < 0.25:
+    if dark >= 0.65 and mid < 0.40 and flat >= 0.28 and busy < 0.30:
+        return True
+    # Colored UI with many flat regions (desktop, code editor with sidebar)
+    if mean_chroma >= 8.0 and flat >= 0.32 and busy <= 0.40:
+        return True
+    # Saturated UI accents + weak RGB correlation (buttons, sidebars, windows)
+    if mean_chroma >= 8.0 and corr < 0.88 and flat >= 0.25:
         return True
     return False
 
@@ -177,6 +187,7 @@ def _tone_stats(image: Image.Image) -> dict[str, float]:
         "r_mean": float(r.mean()),
         "g_mean": float(g.mean()),
         "b_mean": float(b.mean()),
+        "blue_gap": float(b.mean()) - float(r.mean()),
     }
 
 

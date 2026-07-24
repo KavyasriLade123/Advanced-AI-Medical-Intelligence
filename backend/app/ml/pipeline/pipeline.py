@@ -48,7 +48,7 @@ class MedicalXrayPipeline:
         tensor = preprocess_image(image)
         predicted, confidence, probs = self.unified.predict(tensor)
 
-        # Stage 1 — medical image only (X-ray / CT / MRI)
+        # Stage 1 — strict real X-ray only (confidence >= 95%)
         min_xray = float(getattr(self.settings, "xray_confidence_threshold", 0.35))
         stage1 = validate_medical_xray(image, probs, min_xray_confidence=min_xray)
         if not stage1.is_xray:

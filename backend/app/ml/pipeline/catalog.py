@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-MSG_NOT_MEDICAL = "Please upload a valid medical image (X-ray, CT Scan, or MRI)."
+MSG_NOT_MEDICAL = "Please upload a valid medical X-ray image."
 # Back-compat aliases used across the codebase
 MSG_NOT_XRAY = MSG_NOT_MEDICAL
-MSG_UNKNOWN_PART = "Unable to identify the body part. Please upload a clearer medical image."
+MSG_UNKNOWN_PART = "Unable to identify the body part. Please upload a clearer medical X-ray."
 
 
 @dataclass(frozen=True)
